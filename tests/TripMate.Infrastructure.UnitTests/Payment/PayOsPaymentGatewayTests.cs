@@ -10,6 +10,63 @@ namespace TripMate.Infrastructure.UnitTests.Payment;
 
 public sealed class PayOsPaymentGatewayTests
 {
+    [Theory]
+    [InlineData("CANCELLED", true)]
+    [InlineData("PAID", false)]
+    [InlineData("PENDING", false)]
+    public async Task RecoverCommissionLink_VerifiesCancellationResult(string finalStatus, bool safe)
+    {
+        var calls = 0;
+        using var handler = new StubHandler(request =>
+        {
+            calls++;
+            var status = request.Method == HttpMethod.Get ? "PENDING" : finalStatus;
+            return JsonResponse(JsonSerializer.Serialize(new { code = "00", data = new { orderCode = 8000000000000001L, amountPaid = 0L, status } }));
+        });
+        using var client = new HttpClient(handler);
+        var gateway = new PayOsPaymentGateway(client, CreateOptions());
+        var action = () => gateway.CancelCommissionPaymentLinkAsync(new(8000000000000001, null, "Replace expired commission payment"), CancellationToken.None);
+        if (safe) await action.Should().NotThrowAsync();
+        else await action.Should().ThrowAsync<InvalidOperationException>();
+        calls.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("CANCELLED", 0, true)]
+    [InlineData("PAID", 10000, false)]
+    [InlineData("PROCESSING", 0, false)]
+    [InlineData("CANCELLED", 1, false)]
+    public async Task RecoverCommissionLink_OnlyReleasesConfirmedUnpaidCancelledOrders(string status, long paid, bool safe)
+    {
+        using var handler = new StubHandler(request =>
+        {
+            request.Method.Should().Be(HttpMethod.Get);
+            return JsonResponse(JsonSerializer.Serialize(new { code = "00", data = new { orderCode = 8000000000000001L, amountPaid = paid, status } }));
+        });
+        using var client = new HttpClient(handler);
+        var gateway = new PayOsPaymentGateway(client, CreateOptions());
+        var action = () => gateway.CancelCommissionPaymentLinkAsync(new(8000000000000001, null, "Replace expired commission payment"), CancellationToken.None);
+        if (safe) await action.Should().NotThrowAsync();
+        else await action.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound, true)]
+    [InlineData(HttpStatusCode.Unauthorized, false)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, false)]
+    public async Task RecoverCommissionLink_DistinguishesProviderNotFoundFromUnavailable(HttpStatusCode status, bool safe)
+    {
+        using var handler = new StubHandler(_ => new HttpResponseMessage(status)
+        {
+            Content = new StringContent("{\"code\":\"error\",\"desc\":\"provider response\"}"),
+        });
+        using var client = new HttpClient(handler);
+        var gateway = new PayOsPaymentGateway(client, CreateOptions());
+        var action = () => gateway.CancelCommissionPaymentLinkAsync(new(8000000000000001, null, "Replace expired commission payment"), CancellationToken.None);
+        if (safe) await action.Should().NotThrowAsync();
+        else await action.Should().ThrowAsync<HttpRequestException>();
+    }
+
     [Fact]
     public async Task CreatePaymentLinkAsync_ReturnsCheckoutUrl_ForSuccessfulPayOsResponse()
     {

@@ -90,7 +90,7 @@ public sealed class GetTravelerTripQueryHandlerTests
         await data.AddPaymentAsync(booking.Id, id: 101, PaymentGateway.VNPAY);
         await data.AddRefundAsync(booking.Id, id: 2, RefundStatus.Failed, amount: 500_000m, transactionId: 100);
         await data.AddRefundAsync(booking.Id, id: 5, RefundStatus.Processed, amount: 800_000m, transactionId: 101);
-        await data.AddRefundAsync(booking.Id, id: 3, RefundStatus.Pending, amount: 100_000m, transactionId: 100);
+        // Active obligations are covered separately; this case must not promote an old failed attempt.
 
         var detail = (await Handle(data, TripRecordKinds.CommerceBooking, booking.Id)).Value;
 
@@ -155,7 +155,8 @@ public sealed class GetTravelerTripQueryHandlerTests
 
         detail.Tab.Should().Be(ListTravelerTripsQuery.TabCancelled);
         detail.Cancellation.Should().BeNull();
-        detail.Refund.Should().BeNull();
+        detail.Refund.Should().NotBeNull();
+        detail.Actions.CanViewRefund.Should().BeTrue();
     }
 
     [Fact]

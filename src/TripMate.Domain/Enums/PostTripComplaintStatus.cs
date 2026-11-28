@@ -13,4 +13,6 @@ public enum PostTripComplaintStatus
     Rejected,
     Declined,
     Expired,
+    AwaitingStaffReview,
+    AwaitingStaffEvidence,
 }

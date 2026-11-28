@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.DirectRefunds.Create;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Domain.Common;
@@ -49,7 +50,8 @@ public static class EmergencyRefundHandoff
         bool isPreStart,
         EmergencyTourReason reason,
         DateTimeOffset nowUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IPiiProtector? piiProtector = null)
     {
         var submitted = new List<(Booking Booking, PaymentTransaction Payment, BookingCancellationOperation Operation)>();
         var review = new List<(Booking Booking, string Cause)>();
@@ -97,6 +99,18 @@ public static class EmergencyRefundHandoff
                 : OperatorCancellationRefundReason;
             foreach (var (booking, payment, operation) in submitted)
             {
+                if (booking.PaymentFlow == PaymentFlow.OperatorDirect)
+                {
+                    // OperatorDirect: TO handles refund directly via DirectRefundCase lifecycle.
+                    var caseResult = await DirectRefundCaseCreator.CreateAsync(
+                        dbContext, booking.Id, DirectRefundCase.SourceEmergencyEvent,
+                        (long)Math.Round(booking.TotalAmount), (long)payment.Amount,
+                        nowUtc, null, cancellationToken, piiProtector);
+                    if (!caseResult.IsSuccess)
+                        review.Add((booking, "hoàn tiền trực tiếp vượt giới hạn — cần xem xét thủ công"));
+                    continue;
+                }
+
                 // BR-139: TripMate refunds the Traveler in full, but whatever it had already
                 // transferred to the Tour Operator for this booking has to come back, exactly as an
                 // ordinary cancellation records it. Without this the advance is silently absorbed.

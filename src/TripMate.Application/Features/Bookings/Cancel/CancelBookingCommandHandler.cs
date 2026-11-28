@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.DirectRefunds.Create;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Domain.Common;
@@ -21,7 +22,8 @@ public sealed class CancelBookingCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUser,
     IDateTimeProvider clock,
-    IBookingCancellationPersistenceErrorClassifier persistenceErrors)
+    IBookingCancellationPersistenceErrorClassifier persistenceErrors,
+    IPiiProtector? piiProtector = null)
     : IRequestHandler<CancelBookingCommand, Result<CancelBookingResponse>>
 {
     private const int MaxDeadlockAttempts = 3;
@@ -111,15 +113,16 @@ public sealed class CancelBookingCommandHandler(
                     // A zero-percent tier still creates no RefundRequest even when a matching
                     // payment exists — "refundAmount > 0" alone decides whether a Refund is
                     // created at all, below.
+                    bool isOperatorDirect = booking.PaymentFlow == PaymentFlow.OperatorDirect;
                     decimal operatorReturnShare = 0m;
                     DateTimeOffset? returnDeadlineAtUtc = null;
                     string refundStatus = refundAmount <= 0m
                         ? "NotRequired"
                         : successfulPayment is not null
-                            ? nameof(RefundStatus.Pending)
+                            ? isOperatorDirect ? "OperatorDirectRefund" : nameof(RefundStatus.Pending)
                             : nameof(RefundStatus.Reconciliation); // 6.b1: amount mismatch, escalated.
 
-                    if (refundAmount > 0m && successfulPayment is not null)
+                    if (!isOperatorDirect && refundAmount > 0m && successfulPayment is not null)
                     {
                         decimal transferredToOperator = await dbContext.PayoutSettlements.AsNoTracking()
                             .Where(settlement => settlement.BookingId == booking.Id &&
@@ -155,7 +158,26 @@ public sealed class CancelBookingCommandHandler(
                     var initiator = actor == BookingCancellationActor.TourOperator
                         ? RefundInitiator.TourOperator : RefundInitiator.System;
                     Refund? createdRefund = null;
-                    if (refundAmount > 0m && successfulPayment is not null)
+                    if (isOperatorDirect)
+                    {
+                        if (refundAmount > 0m && successfulPayment is not null)
+                        {
+                            string sourceType = actor == BookingCancellationActor.TourOperator
+                                ? DirectRefundCase.SourceToCancellation
+                                : DirectRefundCase.SourcePolicyCancellation;
+                            var caseResult = await DirectRefundCaseCreator.CreateAsync(
+                                dbContext, booking.Id, sourceType,
+                                (long)Math.Round(refundAmount), (long)successfulPayment.Amount,
+                                nowUtc, operation.Id, transactionCancellationToken, piiProtector);
+                            // Cap exceeded is unexpected on first obligation; fall back to admin review.
+                            if (!caseResult.IsSuccess)
+                                await NotifyAdministratorsOfReconciliationAsync(booking.Id, nowUtc,
+                                    transactionCancellationToken);
+                        }
+                        // OperatorDirect reconciliation path: refundStatus="Reconciliation" is set above;
+                        // no Refund or DirectRefundCase created — admin resolves manually.
+                    }
+                    else if (refundAmount > 0m && successfulPayment is not null)
                     {
                         createdRefund = Refund.CreateAutomatically(booking.Id, successfulPayment.Id, operation.Id,
                             refundAmount, reason, initiator, operatorReturnShare, returnDeadlineAtUtc, nowUtc);

@@ -99,6 +99,14 @@ public static class TripCardHydrator
                 .ToListAsync(cancellationToken))
             .ToHashSet();
 
+        var directRefunded = await dbContext.DirectRefundCases.AsNoTracking()
+            .Where(c => ids.Contains(c.BookingId))
+            .Select(c => c.BookingId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        refunded.UnionWith(directRefunded);
+        var refundStates = await TripRefundHistory.LoadAsync(dbContext, ids, cancellationToken);
+
         // A6: one review per booking is normal; if legacy data has several, the lowest id is reported.
         var reviews = (await dbContext.TripReviews.AsNoTracking()
                 .Where(review => review.BookingId != null && ids.Contains(review.BookingId.Value))
@@ -118,6 +126,7 @@ public static class TripCardHydrator
                 row.Title,
                 tickets.TryGetValue(row.Id, out var ticketId) ? ticketId : null,
                 refunded.Contains(row.Id),
+                refundStates.TryGetValue(row.Id, out var refundState) ? refundState.DisplayStatus(row.TotalAmount) : null,
                 reviews.TryGetValue(row.Id, out var review) ? (review.Id, (int)review.OverallRating) : null));
     }
 
@@ -182,28 +191,29 @@ public static class TripCardHydrator
         string Title,
         long? TicketId,
         bool HasRefund,
+        string? RefundStatus,
         (long Id, int Rating)? Review)
     {
         public TripHistoryItemResponse ToCard(string tab, TripKey key)
         {
             // P6: only a Completed, not yet reviewed booking offers a review. P7: the e-ticket needs a
             // Confirmed or Completed booking. P8: the refund status needs a Cancelled booking with a refund.
-            var canViewETicket = (Status is BookingStatus.Confirmed or BookingStatus.Completed) && TicketId is not null;
+            var canViewETicket = RefundStatus is null && (Status is BookingStatus.Confirmed or BookingStatus.Completed) && TicketId is not null;
             return new TripHistoryItemResponse
             {
                 Kind = TripRecordKinds.CommerceBooking,
                 Id = Id,
                 TripType = ListTravelerTripsQuery.TripTypeTourBooking,
-                Tab = tab,
+                Tab = RefundStatus is not null ? ListTravelerTripsQuery.TabCancelled : tab,
                 Title = Title,
                 DepartureAtUtc = key.DepartureAtUtc,
-                Status = Status.ToString(),
+                Status = RefundStatus ?? Status.ToString(),
                 ReviewableRecord = ReviewableRecordRef.CommerceBooking(Id),
                 Actions = new TripActionsResponse(
-                    CanReview: Status == BookingStatus.Completed && Review is null,
+                    CanReview: RefundStatus is null && Status == BookingStatus.Completed && Review is null,
                     CanViewETicket: canViewETicket,
                     TicketId: canViewETicket ? TicketId : null,
-                    CanViewRefund: Status == BookingStatus.Cancelled && HasRefund),
+                    CanViewRefund: (Status == BookingStatus.Cancelled || RefundStatus is not null) && HasRefund),
                 Review = Review is { } review
                     ? new TripReviewStateResponse(true, review.Id, review.Rating)
                     : new TripReviewStateResponse(false, null, null),

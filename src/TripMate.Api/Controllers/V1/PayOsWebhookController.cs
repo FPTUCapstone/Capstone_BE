@@ -25,4 +25,17 @@ public sealed class PayOsWebhookController(ISender sender) : ApiControllerBase(s
         var result = await Sender.Send(new ProcessPayOsWebhookCommand(payload), cancellationToken);
         return result.IsSuccess ? Ok(new { success = true }) : HandleFailure(result);
     }
+
+    [HttpPost("channel/{channelId:long}/webhook")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ReceiveOperatorWebhook(
+        long channelId,
+        [FromBody] PayOsWebhookPayload payload,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new ProcessOperatorPayOsWebhookCommand(channelId, payload), cancellationToken);
+        return result.IsSuccess ? Ok(new { success = true }) : HandleFailure(result);
+    }
 }

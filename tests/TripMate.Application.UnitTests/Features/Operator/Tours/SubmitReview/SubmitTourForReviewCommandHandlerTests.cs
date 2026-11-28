@@ -19,6 +19,7 @@ public sealed class SubmitTourForReviewCommandHandlerTests
         var actor = await SeedApprovedOperatorAsync(db, 7);
         await TourAuthoringTestData.SeedReferenceDataAsync(db);
         await SeedPoiAsync(db, 88);
+        await SeedReadyChannelAsync(db, actor.Id);
         var clock = new FakeDateTimeProvider { UtcNow = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero) };
         var create = new CreateTourPackageCommandHandler(db,
             new FakeCurrentUserService { UserId = actor.Id }, clock);
@@ -52,6 +53,7 @@ public sealed class SubmitTourForReviewCommandHandlerTests
         var actor = await SeedApprovedOperatorAsync(db, 7);
         await TourAuthoringTestData.SeedReferenceDataAsync(db);
         await SeedPoiAsync(db, 88);
+        await SeedReadyChannelAsync(db, actor.Id);
         var clock = new FakeDateTimeProvider { UtcNow = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero) };
         var user = new FakeCurrentUserService { UserId = actor.Id };
         var created = await new CreateTourPackageCommandHandler(db, user, clock)
@@ -176,6 +178,30 @@ public sealed class SubmitTourForReviewCommandHandlerTests
         (await db.AuditLogs.CountAsync()).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Handle_WhenNoReadyPaymentChannel_BlocksSubmission()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        // No Ready channel seeded — gate should block
+        var clock = new FakeDateTimeProvider { UtcNow = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero) };
+        var user = new FakeCurrentUserService { UserId = actor.Id };
+        var created = await new CreateTourPackageCommandHandler(db, user, clock)
+            .Handle(Command(88, clock.UtcNow), CancellationToken.None);
+        var tour = await db.Tours.SingleAsync();
+        db.TourMedia.Add(TripMate.Domain.Entities.TourMedia.Create(tour, "tour/cover", "https://cdn.example.test/cover.jpg",
+            null, "Da Nang tour cover", 1, true, clock.UtcNow));
+        await db.SaveChangesAsync();
+        var handler = new SubmitTourForReviewCommandHandler(db, user, clock);
+
+        var result = await handler.Handle(new SubmitTourForReviewCommand(created.Value.TourId), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        (await db.Tours.SingleAsync()).Status.Should().Be(TourStatus.Draft);
+    }
+
     private static CreateTourPackageCommand Command(long poiId, DateTimeOffset now) => new(
         "Da Nang day tour", "A full day visiting Da Nang landmarks.", null, 1_250_000m, 1,
         [TourAuthoringTestData.DestinationId], TourAuthoringTestData.PolicyTemplateId, null, null,
@@ -198,6 +224,16 @@ public sealed class SubmitTourForReviewCommandHandlerTests
         typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poi, id);
         typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Status))!.SetValue(poi, PointOfInterestStatus.Active);
         db.PointsOfInterest.Add(poi);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedReadyChannelAsync(TestDbContext db, long operatorUserId)
+    {
+        var now = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero);
+        var ch = OperatorPaymentChannel.Create(operatorUserId, now);
+        ch.SetCredentialRefs("ref:client-1", "ref:api-1", "ref:checksum-1", "123456789", "TO Account", "VCB", now);
+        ch.MarkReady("123456789", "TO Account", "VCB", "https://hook.example.test/webhook", now);
+        db.OperatorPaymentChannels.Add(ch);
         await db.SaveChangesAsync();
     }
 }

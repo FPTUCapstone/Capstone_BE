@@ -1,0 +1,15 @@
+# TO monthly commission payment — approved implementation
+
+User explicitly approved: a monthly TO commission statement is the payment obligation. TO proactively pays the fixed issued commission through TripMate's platform payOS account. Reuse POST /api/v1/payments/payos/webhook, distinguish commission vs legacy booking by durable unique correlation, never operator-channel credentials. Show Hoa hồng & Thanh toán in TO navigation and link from dashboard. Keep legacy payout routes available; do not relabel old payout data as commission.
+
+Statement computation: verified OperatorDirect payments for completed tours, subtract completed related refunds, exclude/treat as held unsettled complaints/refunds, whole VND round-half-up. Vietnam calendar month; 7 calendar days after issue for payment; issued statement immutable. No arbitrary TO amount. Do not issue an unfinished/future month. Preserve historical statements, no automatic paid-state backfill. Carry-forward policy is approved below: carry held unbilled amounts and late completed refund adjustments into a later statement.
+
+Statement endpoints: own TO GET list/detail, POST /{id}/payment-link (reuse valid link), controlled Mock completion for a Mock statement only; authorized Admin/Staff list/detail/issue; private fields and authority checked server-side. Pagination/filter/date/status explicit. List/detail expose eligibleBaseVnd, rate, amount, period, status, due/paid times, allowed actions, safe current checkout data/provider. Statement Paid only after trusted matching success. Manual admin marked paid is not introduced.
+
+Payment: durable platform order-code namespace disjoint from booking order codes, persisted provider/link/checkout/expiry and expected amount before callback can settle it. Verify HMAC with platform checksum; require successful payload, exact whole-VND amount, currency and link. Duplicate same payment success is idempotent; wrong/foreign/mismatched callbacks never mark statement/booking Paid. Preserve legacy booking callback and signed webhook verification probe behavior. Operator-channel callback cannot settle a platform commission. Link concurrency/expiry/retry must not duplicate obligations. Mock remains configured locally; do not switch production or call real providers/transfers during tests.
+
+## Carry-forward approved 27/11/2026
+
+The user approved: hold unresolved revenue/refunds until a later closed billing period after resolution; refunds completed after an issued period reduce a later statement, never rewrite the issued statement. Persist source attribution and original rate so each revenue/refund is accounted once. Preserve excess refund credit for later periods rather than losing it at zero payable. A zero-payable statement has no payment action and is not falsely marked Paid. Historical statements remain immutable; do not infer undocumented historical booking attribution or silently charge them again.
+
+Migrations additive and repeatable; isolated SQL tests, verified backup before local apply. No commits, PR, push or deploy authorized. Existing dirty work is preserved.

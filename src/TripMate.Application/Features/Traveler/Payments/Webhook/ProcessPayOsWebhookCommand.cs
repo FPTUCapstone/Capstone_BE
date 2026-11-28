@@ -5,7 +5,11 @@ using System.Text.Json.Serialization;
 
 using MediatR;
 
+using Microsoft.EntityFrameworkCore;
+
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Operator.CommissionStatements;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -42,7 +46,9 @@ public record ProcessPayOsWebhookCommand(
 
 public sealed class ProcessPayOsWebhookCommandHandler(
     IPaymentCompletionProcessor completionProcessor,
-    PaymentOptions paymentOptions)
+    PaymentOptions paymentOptions,
+    IApplicationDbContext dbContext,
+    IDateTimeProvider? clock = null)
     : IRequestHandler<ProcessPayOsWebhookCommand, Result<bool>>
 {
     public async Task<Result<bool>> Handle(
@@ -56,8 +62,17 @@ public sealed class ProcessPayOsWebhookCommandHandler(
                 PaymentErrorCodes.PaymentCallbackInvalid, "Invalid PayOS webhook payload structure.");
         }
 
+        // The platform key cannot authorize a payment collected by a TO, even if reused by mistake.
+        var operatorPayment = await dbContext.PaymentTransactions.AsNoTracking()
+            .AnyAsync(t => t.OrderCode == payload.Data.OrderCode
+                && (t.OperatorChannelId != null || t.Booking.PaymentFlow == PaymentFlow.OperatorDirect), cancellationToken);
+        if (operatorPayment)
+            return Result.Failure<bool>(PaymentErrorCodes.PaymentCallbackInvalid, "This payment requires its operator channel webhook.");
+
         // Verify signature if ChecksumKey is configured
         var checksumKey = paymentOptions.PayOs.ChecksumKey;
+        if (string.IsNullOrWhiteSpace(checksumKey))
+            return Result.Failure<bool>(PaymentErrorCodes.PaymentCallbackInvalid, "Webhook verification is not configured.");
         if (!string.IsNullOrWhiteSpace(checksumKey))
         {
             var isValid = VerifyPayOsSignature(payload.Data, payload.Signature, checksumKey);
@@ -68,10 +83,13 @@ public sealed class ProcessPayOsWebhookCommandHandler(
             }
         }
 
-        var outcome = string.Equals(payload.Code, "00", StringComparison.OrdinalIgnoreCase) &&
-                      string.Equals(payload.Data.Code, "00", StringComparison.OrdinalIgnoreCase)
-            ? PaymentTransactionStatus.Success
-            : PaymentTransactionStatus.Cancelled;
+        if (payload.Code != "00" || payload.Data.Code != "00")
+            return Result.Failure<bool>(PaymentErrorCodes.PaymentCallbackInvalid, "Only successful payment notifications are accepted.");
+        if (CommissionPaymentAttempt.IsCommissionOrderCode(payload.Data.OrderCode))
+            return await CommissionPaymentSettlement.SettleAsync(dbContext, payload.Data.OrderCode, payload.Data.Amount,
+                payload.Data.Currency, payload.Data.PaymentLinkId, payload.Data.Reference, PaymentGateway.PayOS,
+                clock?.UtcNow ?? DateTimeOffset.UtcNow, cancellationToken);
+        var outcome = PaymentTransactionStatus.Success;
 
         var rawResponse = !string.IsNullOrWhiteSpace(request.RawBody)
             ? request.RawBody

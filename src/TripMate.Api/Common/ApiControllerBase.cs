@@ -65,6 +65,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
+            "staff_complaint.forbidden" => StatusCodes.Status403Forbidden,
+            "staff_complaint.not_found" => StatusCodes.Status404NotFound,
+            "staff_complaint.conflict" => StatusCodes.Status409Conflict,
+            "staff_complaint.invalid" => StatusCodes.Status400BadRequest,
+            "staff_complaint.unavailable" => StatusCodes.Status503ServiceUnavailable,
             "contract.forbidden" => StatusCodes.Status403Forbidden,
             "contract.not_found" => StatusCodes.Status404NotFound,
             "contract.conflict" => StatusCodes.Status409Conflict,
@@ -694,9 +699,66 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             PaymentErrorCodes.PaymentBookingNotEligible
                 or PaymentErrorCodes.PaymentBookingExpired => StatusCodes.Status409Conflict,
             PaymentErrorCodes.PaymentGatewayUnavailable => StatusCodes.Status503ServiceUnavailable,
+            PaymentErrorCodes.PaymentReconciliationRequired => StatusCodes.Status409Conflict,
             PaymentErrorCodes.PaymentCallbackInvalid => StatusCodes.Status400BadRequest,
 
+            TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.ValidationFailed =>
+                StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.CredentialsMissing =>
+                StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.VerificationFailed =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.InvalidState
+                or TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.VersionConflict
+                or TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.MerchantInUse
+                or TripMate.Application.Features.Operator.PaymentChannels.Common.PaymentChannelErrorCodes.IdempotencyMismatch =>
+                StatusCodes.Status409Conflict,
+
             TourRecommendationErrorCodes.InterestTagsRequired =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            // Direct Commission Statements (Tasks 17–18)
+            "commission.forbidden" => StatusCodes.Status403Forbidden,
+            "commission.not_found" => StatusCodes.Status404NotFound,
+            "commission.duplicate_period"
+                or "commission.invalid_state"
+                or "commission.payment_conflict"
+                or "commission.payment_in_progress"
+                or "commission.payment_gateway_changed"
+                or "commission.payment_link_exists" => StatusCodes.Status409Conflict,
+            "commission.payment_callback_invalid" or "commission.invalid_query" => StatusCodes.Status400BadRequest,
+            "commission.mock_disabled" => StatusCodes.Status403Forbidden,
+            "commission.no_eligible_base"
+                or "commission.invalid_operator"
+                or "commission.invalid_period" => StatusCodes.Status422UnprocessableEntity,
+            "commission.payment_gateway_unavailable" => StatusCodes.Status503ServiceUnavailable,
+
+            // Direct Operator Refund (Tasks 12–14a)
+            TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.StorageUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.AccessDenied
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.Unauthorized =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.InvalidState
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.VersionConflict
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.ResponseWindowClosed
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.DuplicateSource
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.CapExceeded =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.ValidationFailed
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.RecipientRequired
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.EvidenceInvalid
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.AmountInvalid
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.TransferFutureDate
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.MissingEvidence
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.EvidenceNotOwnedByCase
+                or TripMate.Application.Features.Bookings.DirectRefunds.Common.DirectRefundErrorCodes.TooManyEvidences =>
                 StatusCodes.Status422UnprocessableEntity,
 
             _ => StatusCodes.Status400BadRequest,

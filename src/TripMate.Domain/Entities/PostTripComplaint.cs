@@ -188,7 +188,38 @@ public sealed class PostTripComplaint : BaseEntity
         ArgumentOutOfRangeException.ThrowIfNullOrWhiteSpace(reason);
         if (reason.Trim().Length > RejectionReasonMaxLength) throw new ArgumentOutOfRangeException(nameof(reason));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(travelerUserId);
-        Status = PostTripComplaintStatus.Declined;
+        Status = PostTripComplaintStatus.AwaitingStaffReview;
+    }
+
+    public void RequestStaffEvidence()
+    {
+        EnsureStaffReview();
+        Status = PostTripComplaintStatus.AwaitingStaffEvidence;
+    }
+
+    public void ReceiveStaffEvidence()
+    {
+        if (Status != PostTripComplaintStatus.AwaitingStaffEvidence)
+            throw new InvalidOperationException("No Staff evidence request is open.");
+        Status = PostTripComplaintStatus.AwaitingStaffReview;
+    }
+
+    public void ResolveByStaff(bool refund, decimal? approvedAmount = null)
+    {
+        EnsureStaffReview();
+        if (approvedAmount is not null)
+        {
+            if (!refund || approvedAmount <= 0 || approvedAmount > RefundableAmount)
+                throw new ArgumentOutOfRangeException(nameof(approvedAmount));
+            ProposedRefundAmount = approvedAmount;
+        }
+        Status = refund ? PostTripComplaintStatus.Approved : PostTripComplaintStatus.Rejected;
+    }
+
+    private void EnsureStaffReview()
+    {
+        if (Status != PostTripComplaintStatus.AwaitingStaffReview)
+            throw new InvalidOperationException("The complaint is not awaiting Staff review.");
     }
 
     public void Reject(long operatorUserId, string rejectionReason, DateTimeOffset respondedAtUtc)

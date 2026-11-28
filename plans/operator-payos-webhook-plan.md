@@ -1,0 +1,8 @@
+# Plan — real TO webhook
+
+1. Baseline Application payment tests (123 passed). Inspect existing code/DI/schema/config, preserve unrelated edits/reports. No clean checkout/reset since branch contains user's in-progress implementation.
+2. Red tests: `tests/TripMate.Infrastructure.UnitTests/Payment/PayOsChannelVerifierTests.cs` for provider request/auth/result/error/timeout/URL; new Application regression tests for persisted proof, approval gate, credential reset, pending signed probe, cross-channel/key rotation and replay.
+3. Implement HttpClient verifier + DI; update `IPaymentChannelVerifier`, Verify handler, channel domain methods, Submit/Admin approval/disable guards/audit/concurrency. Keep FE contract compatible; HTTP outside transaction.
+4. Add payment snapshot domain/mapping and `database/migrations/20261125_operator_payos_webhook_snapshots.sql`; stamp at claim time in create-link handler. Bind old/new webhook routes to correct flow/channel and original key, reuse completion processor. Update existing fake-only tests to seed real bound attempts instead of treating arbitrary order codes as legitimate payments.
+5. Run focused tests, build, format changed C# files to repository config. Add SQL migration/concurrency integration checks when SQL environment is available; no DB mutation without backup/restore readiness. Run broader relevant suites and solution checks, report environmental failures honestly.
+6. Fresh subagent spec review then quality/security review per AGENTS; fix blockers. Update setup/docs, no secret output, no real payment or provider registration in automated tests. No commit/push requested.

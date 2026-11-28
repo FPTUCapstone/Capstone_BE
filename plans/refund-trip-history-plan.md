@@ -1,0 +1,7 @@
+# Accepted refund history plan
+
+1. Add regression tests for accepted direct refund on Confirmed/Completed bookings: exactly one Cancelled tab, pending/completed status, Refund Details and matching detail; reject-only legacy must not move a completed booking.
+2. Add shared refund read model, use it in booking stream filtering, card hydration and booking detail. Keep payment/refund mutation paths unchanged and avoid N+1 reads.
+3. Add Web status labels and verify existing refund dialog/ownership behavior. Run focused TripHistory/refund tests, Web tests/lint/typecheck, API build and two-stage review. Restart local API and verify existing accepted refund data read-only. No PR, push, migration or APK.
+
+Validation: related BE suite passed (266 tests before the final additional legacy-priority case); final accepted-refund suite passed 8 tests. SQL Server classification/ownership test passed in an isolated database. FE card/dialog tests passed 35 tests; focused ESLint and project typecheck passed. Independent spec/quality review confirmed no remaining blockers after fixing priority for disputed/pending cases and accepted legacy obligations hidden by later rejected/processed attempts. No payment facts, booking service status or live refund records were mutated. No production Web build or full solution suite was run. Docker was stopped during verification; restarted only SQL/Redis and the native BE/FE applications.
