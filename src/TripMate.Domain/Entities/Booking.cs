@@ -63,6 +63,8 @@ public class Booking : BaseEntity
 
     public DateTimeOffset? EmergencyNoticeAcknowledgedAtUtc { get; private set; }
 
+    public PaymentFlow PaymentFlow { get; private set; } = PaymentFlow.PlatformCollectedLegacy;
+
     public IReadOnlyCollection<BookingParticipant> Participants => _participants.AsReadOnly();
 
     public IReadOnlyCollection<Ticket> Tickets => _tickets.AsReadOnly();
@@ -162,6 +164,17 @@ public class Booking : BaseEntity
         }
 
         return booking;
+    }
+
+    /// <summary>
+    /// Stamps the payment routing model at booking creation time. Only valid while the booking
+    /// is still PendingPayment/Unpaid — the flow is immutable after the first payment attempt.
+    /// </summary>
+    public void StampPaymentFlow(PaymentFlow flow)
+    {
+        if (Status != BookingStatus.PendingPayment || PaymentStatus != PaymentStatus.Unpaid)
+            throw new InvalidOperationException("PaymentFlow can only be set on a PendingPayment/Unpaid booking.");
+        PaymentFlow = flow;
     }
 
     /// <summary>

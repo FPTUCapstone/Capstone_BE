@@ -51,6 +51,47 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
 
                     tour.Approve(reviewerId, now, publishedAtUtc: now);
 
+                    // [DH-04b] Supersede any prior live version in the same lineage
+                    if (tour.VersionNo > 1 || tour.VersionRootTourId.HasValue)
+                    {
+                        var rootId = tour.VersionRootTourId ?? tour.Id;
+                        var siblings = await dbContext.Tours
+                            .Where(x => (x.VersionRootTourId == rootId || x.Id == rootId)
+                                        && x.Id != tour.Id
+                                        && (x.Status == TourStatus.Published || x.Status == TourStatus.Approved))
+                            .ToListAsync(ct);
+
+                        foreach (var sibling in siblings)
+                        {
+                            if (!sibling.CanUnpublish(now))
+                                continue;
+
+                            var siblingStatusBefore = sibling.Status;
+                            sibling.Unpublish(now);
+
+                            dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
+                                reviewerId,
+                                AuditActionTypes.TourUnpublished,
+                                AuditEntityTypes.Tour,
+                                sibling.Id,
+                                now,
+                                AuditOutcome.Success,
+                                beforeData: JsonSerializer.Serialize(new
+                                {
+                                    Status = siblingStatusBefore.ToString(),
+                                    PublishedAtUtc = sibling.PublishedAtUtc,
+                                }),
+                                afterData: JsonSerializer.Serialize(new
+                                {
+                                    Status = sibling.Status.ToString(),
+                                    VersionNo = sibling.VersionNo,
+                                    VersionRootTourId = sibling.VersionRootTourId,
+                                    SupersededByTourId = tour.Id,
+                                    UnpublishedAtUtc = now,
+                                })));
+                        }
+                    }
+
                     var afterData = JsonSerializer.Serialize(new
                     {
                         Status = tour.Status.ToString(),

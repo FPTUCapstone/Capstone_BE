@@ -544,6 +544,15 @@ public sealed partial class OperatorTourPackageSqlServerTests
         long poiId;
         await using (var context = database.CreateDbContext())
         {
+            // Publication tests exercise ready operators; draft creation remains independent of this gate.
+            var now = DateTimeOffset.UtcNow;
+            var channel = OperatorPaymentChannel.Create(operatorId, now);
+            channel.SetCredentialRefs("test-only-client-ref", "test-only-api-ref", "test-only-checksum-ref",
+                "1234567890", "UC-35 TEST OPERATOR", "970436", now);
+            var webhookUrl = $"https://api.example.test/api/v1/payments/payos/channel/{channel.OpaqueId:D}/webhook";
+            channel.RecordWebhookRegistration(webhookUrl, now);
+            channel.MarkReady("1234567890", "UC-35 TEST OPERATOR", "970436", webhookUrl, now);
+            context.OperatorPaymentChannels.Add(channel);
             var category = PoiCategory.Create("UC-35 attraction", null);
             context.PoiCategories.Add(category);
             var poi = PointOfInterest.Create(category, "UC-35 POI", 21.03m, 105.85m, operatorId, DateTimeOffset.UtcNow);

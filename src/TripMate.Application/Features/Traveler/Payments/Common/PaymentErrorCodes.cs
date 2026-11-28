@@ -9,4 +9,6 @@ public static class PaymentErrorCodes
     public const string PaymentMockDisabled = "PAYMENT_MOCK_DISABLED";
     public const string PaymentCallbackInvalid = "PAYMENT_CALLBACK_INVALID";
     public const string AccessDenied = "payment.access_denied";
+    public const string ChannelNotReady = "payment.channel_not_ready";
+    public const string PaymentReconciliationRequired = "payment.reconciliation_required";
 }

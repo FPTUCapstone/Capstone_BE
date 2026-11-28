@@ -19,6 +19,8 @@ internal sealed class OperatorComplaintDeadlineBackgroundService(
                 await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
                 int expired = await scope.ServiceProvider.GetRequiredService<OperatorComplaintDeadlineProcessor>()
                     .ExpireOverdueAsync(stoppingToken);
+                await scope.ServiceProvider.GetRequiredService<TripMate.Application.Features.Complaints.StaffReview.StaffComplaintEvidenceDeadlineProcessor>()
+                    .ExpireOverdueAsync(stoppingToken);
                 if (expired > 0) logger.LogInformation("Expired {Count} overdue operator complaint response(s).", expired);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }

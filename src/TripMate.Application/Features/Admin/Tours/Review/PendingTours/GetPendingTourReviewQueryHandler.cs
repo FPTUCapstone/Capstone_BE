@@ -49,6 +49,7 @@ public sealed class GetPendingTourReviewQueryHandler(IApplicationDbContext dbCon
                 tour.DestinationSummary,
                 Category = tour.Category != null ? tour.Category.Name : null,
                 SubmittedAtUtc = tour.SubmittedAtUtc ?? tour.UpdatedAtUtc, // legacy rows pre-date the column
+                tour.SubmissionNote,
                 tour.DurationDays,
                 tour.BasePrice,
                 tour.Description,
@@ -56,6 +57,9 @@ public sealed class GetPendingTourReviewQueryHandler(IApplicationDbContext dbCon
                 tour.Inclusions,
                 tour.Exclusions,
                 tour.TravellerRequirements,
+                tour.AllowDeposit,
+                tour.DepositPercent,
+                tour.BalanceDueDaysBeforeDeparture,
                 Policy = tour.CancellationPolicyRules
                     .OrderByDescending(rule => rule.DaysBeforeDeparture)
                     .Select(rule => new PendingTourCancellationRuleDto(rule.DaysBeforeDeparture, rule.CancellationFeePercent))
@@ -106,7 +110,13 @@ public sealed class GetPendingTourReviewQueryHandler(IApplicationDbContext dbCon
             row.Policy,
             row.Schedules,
             row.Itinerary,
-            row.Images));
+            row.Images)
+        {
+            SubmissionNote = row.SubmissionNote,
+            AllowDeposit = row.AllowDeposit,
+            DepositPercent = row.DepositPercent,
+            BalanceDueDaysBeforeDeparture = row.BalanceDueDaysBeforeDeparture,
+        });
     }
 
     private static IReadOnlyList<string> SplitLines(string? value) =>

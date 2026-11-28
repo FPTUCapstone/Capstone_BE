@@ -20,7 +20,16 @@ public sealed record OperatorTourListItemDto(
     int VersionNo,
     DateTimeOffset UpdatedAtUtc,
     DateTimeOffset? NextDepartureAtUtc,
-    string Destination);
+    string Destination)
+{
+    public int UpcomingDepartureCount { get; init; }
+
+    public int CompletedDepartureCount { get; init; }
+
+    public int TotalDepartureCount { get; init; }
+
+    public DateTimeOffset? PublishedAtUtc { get; init; }
+}
 
 public sealed record OperatorTourListResponse(
     IReadOnlyList<OperatorTourListItemDto> Items,

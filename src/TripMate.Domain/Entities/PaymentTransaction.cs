@@ -36,6 +36,25 @@ public class PaymentTransaction : BaseEntity
 
     public long OrderCode { get; private set; }
 
+    public long? OperatorChannelId { get; private set; }
+    public int? OperatorChannelVersion { get; private set; }
+    /// <summary>Encrypted original webhook key; never include in public payment DTOs.</summary>
+    public string? OperatorChecksumKeyRef { get; private set; }
+
+    public void BindOperatorChannel(long channelId, int channelVersion, string protectedChecksumKey)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channelId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channelVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(protectedChecksumKey);
+        if (Status != PaymentTransactionStatus.Pending || OperatorChannelId.HasValue)
+            throw new InvalidOperationException("A payment channel binding is immutable.");
+        if (protectedChecksumKey.Length > OperatorPaymentChannel.ChecksumKeyRefMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(protectedChecksumKey));
+        OperatorChannelId = channelId;
+        OperatorChannelVersion = channelVersion;
+        OperatorChecksumKeyRef = protectedChecksumKey;
+    }
+
     public string? PaymentLinkId { get; private set; }
 
     public string? CheckoutUrl { get; private set; }

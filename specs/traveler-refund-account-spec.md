@@ -1,0 +1,7 @@
+# Traveler default refund account
+
+User-approved scope: Traveler saves one default account in their account workspace, reused automatically for newly created direct-refund obligations. GET/PUT `/api/v1/traveler/refund-account` derives identity from authenticated Traveler; GET returns `{bankCode,accountNumber,accountHolder}` or null, PUT accepts those fields and trims/validates required values and existing DirectRefundCase maximum lengths. No additional bank-format or identity-verification rule is invented.
+
+New payment.TravelerRefundAccounts is one row per dbo.Users user, storing account number and holder encrypted through IPiiProtector. Private no-store responses, no sensitive logs. Each new DirectRefundCase snapshots the current saved account and enters its existing ConfirmRecipient transition. Saving the default also confirms this Traveler's existing AwaitingRecipient cases in the same transaction, starting the normal TO transfer deadline. Existing confirmed recipient snapshots and reported/completed transfers are never changed. Manual recipient confirmation also saves the account as default for future obligations. No automatic backfill from existing case records. Missing saved account preserves existing AwaitingRecipient behavior. Decryption failure fails safely rather than sending money elsewhere.
+
+Idempotent SQL migration `20261127_traveler_refund_accounts.sql`; no live migration or data mutation by delegated agent.

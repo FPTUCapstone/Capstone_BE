@@ -8,6 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\migrations\20261125_direct_operator_payment_refund_foundation.sql"
+          Link="Database\migrations\20261125_direct_operator_payment_refund_foundation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261127_traveler_refund_accounts.sql"
+          Link="Database\migrations\20261127_traveler_refund_accounts.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261125_operator_payos_webhook_snapshots.sql"
+          Link="Database\migrations\20261125_operator_payos_webhook_snapshots.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261124_operator_contract_signing.sql"
           Link="Database\migrations\20261124_operator_contract_signing.sql"
           CopyToOutputDirectory="PreserveNewest" />
@@ -28,6 +37,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261124_tour_recommendation_attributes.sql"
           Link="Database\migrations\20261124_tour_recommendation_attributes.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261126_add_tour_deposit_setup.sql"
+          Link="Database\migrations\20261126_add_tour_deposit_setup.sql"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
@@ -212,6 +224,9 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <None Include="..\..\database\migrations\20261127_commission_payment_tracking.sql" Link="Database\migrations\20261127_commission_payment_tracking.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261127_commission_monthly_lines.sql" Link="Database\migrations\20261127_commission_monthly_lines.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261127_staff_complaint_resolution.sql" Link="Database\migrations\20261127_staff_complaint_resolution.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261114_tm225_account_provisioning.sql" Link="Database\migrations\20261114_tm225_account_provisioning.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261114_tm225_service_request_lifecycle.sql" Link="Database\migrations\20261114_tm225_service_request_lifecycle.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm225_pre_migration_schema.sql" Link="Database\Fixtures\tm225_pre_migration_schema.sql" CopyToOutputDirectory="PreserveNewest" />

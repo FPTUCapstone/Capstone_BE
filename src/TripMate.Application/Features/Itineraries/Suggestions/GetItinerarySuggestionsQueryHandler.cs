@@ -267,8 +267,12 @@ public sealed class GetItinerarySuggestionsQueryHandler(
             }
         }
 
+        // Accommodation POIs are not sightseeing stops: never suggest a hotel here, even as
+        // a fallback, regardless of whether its room classes are currently open for booking.
+        var accommodationPoiIds = await PlanningPoiEligibility.AccommodationPoiIdsAsync(dbContext, cancellationToken);
         var anyAttractions = await baseQuery
-            .Where(poi => !foodAliases.Contains(poi.Category.Name.Trim().ToLower()))
+            .Where(poi => !foodAliases.Contains(poi.Category.Name.Trim().ToLower())
+                && !accommodationPoiIds.Contains(poi.Id))
             .ToListAsync(cancellationToken);
         return FilterReady(anyAttractions);
     }

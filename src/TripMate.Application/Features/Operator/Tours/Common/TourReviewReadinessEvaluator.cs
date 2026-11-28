@@ -15,6 +15,7 @@ public static class TourReviewBlockers
     public const string FutureDepartureMissing = "future_departure_missing";
     public const string CancellationPolicyMissing = "cancellation_policy_missing";
     public const string DestinationMissing = "destination_missing";
+    public const string PaymentChannelNotReady = "payment_channel_not_ready";
 }
 
 /// <summary>Facts about a package that decide whether it may be sent for review.</summary>
@@ -24,7 +25,8 @@ public sealed record TourReviewFacts(
     bool HasCancellationPolicySnapshot,
     bool HasDestination,
     bool HasRequiredFields = true,
-    bool HasItinerary = true);
+    bool HasItinerary = true,
+    bool HasReadyPaymentChannel = true);
 
 /// <summary>
 /// The single source of truth for the review prerequisites. The detail query and
@@ -34,13 +36,14 @@ public static class TourReviewReadinessEvaluator
 {
     public static IReadOnlyList<string> Evaluate(TourReviewFacts facts)
     {
-        var blockers = new List<string>(6);
+        var blockers = new List<string>(7);
         if (!facts.HasRequiredFields) blockers.Add(TourReviewBlockers.RequiredFieldsMissing);
         if (!facts.HasItinerary) blockers.Add(TourReviewBlockers.ItineraryMissing);
         if (!facts.HasPrimaryImage) blockers.Add(TourReviewBlockers.PrimaryImageMissing);
         if (!facts.HasFuturePricedDeparture) blockers.Add(TourReviewBlockers.FutureDepartureMissing);
         if (!facts.HasCancellationPolicySnapshot) blockers.Add(TourReviewBlockers.CancellationPolicyMissing);
         if (!facts.HasDestination) blockers.Add(TourReviewBlockers.DestinationMissing);
+        if (!facts.HasReadyPaymentChannel) blockers.Add(TourReviewBlockers.PaymentChannelNotReady);
         return blockers;
     }
 
@@ -92,8 +95,11 @@ public static class TourReviewReadinessEvaluator
         bool hasPolicySnapshot = cancellationPolicyTemplateId.HasValue &&
             await dbContext.TourCancellationPolicyRules.AnyAsync(rule => rule.TourId == tourId,
                 cancellationToken);
+        bool hasReadyPaymentChannel = await dbContext.OperatorPaymentChannels.AnyAsync(
+            c => c.TourOperatorUserId == tour.OperatorUserId && c.Status == OperatorPaymentChannel.StatusReady,
+            cancellationToken);
 
-        var blockers = Evaluate(new TourReviewFacts(hasPrimaryImage, hasFutureDeparture, hasPolicySnapshot, hasDestination, hasRequiredFields, hasItinerary));
+        var blockers = Evaluate(new TourReviewFacts(hasPrimaryImage, hasFutureDeparture, hasPolicySnapshot, hasDestination, hasRequiredFields, hasItinerary, hasReadyPaymentChannel));
         return new TourReviewReadiness(mediaCount, hasPrimaryImage, blockers);
     }
     private static bool IsValidPrice(decimal price, bool positive) =>

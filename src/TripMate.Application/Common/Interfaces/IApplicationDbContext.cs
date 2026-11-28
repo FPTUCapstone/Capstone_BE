@@ -6,9 +6,13 @@ namespace TripMate.Application.Common.Interfaces;
 
 public interface IApplicationDbContext
 {
+    DbSet<ComplaintStaffReviewEvent> ComplaintStaffReviewEvents =>
+        throw new NotSupportedException("Complaint Staff review is unavailable in this context.");
+
     DbSet<DirectConversation> DirectConversations { get; }
 
     DbSet<DirectMessage> DirectMessages { get; }
+
 
     DbSet<OperatorContract> OperatorContracts =>
         throw new NotSupportedException("Operator contracts are unavailable in this context.");
@@ -41,6 +45,9 @@ public interface IApplicationDbContext
     DbSet<PoiCategory> PoiCategories { get; }
 
     DbSet<PointOfInterest> PointsOfInterest { get; }
+    DbSet<StayListing> StayListings => throw new NotSupportedException();
+    DbSet<StayInquiry> StayInquiries => throw new NotSupportedException();
+    DbSet<StayOwnershipClaim> StayOwnershipClaims => throw new NotSupportedException();
 
     DbSet<RouteSegment> RouteSegments { get; }
 
@@ -66,6 +73,8 @@ public interface IApplicationDbContext
     DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
         throw new NotSupportedException("Tour package idempotency is unavailable in this context.");
 
+    DbSet<TourDepartureCreateOperation> TourDepartureCreateOperations =>
+        throw new NotSupportedException("Tour departure idempotency is unavailable in this context.");
     DbSet<TourPendingChangeSet> TourPendingChangeSets =>
         throw new NotSupportedException("Tour pending change sets are unavailable in this context.");
 
@@ -259,6 +268,29 @@ public interface IApplicationDbContext
 
 
     DbSet<PayoutReconciliationItem> PayoutReconciliationItems { get; }
+
+    // Direct Operator Payment (Phase 1 Task 5)
+    DbSet<OperatorPaymentChannel> OperatorPaymentChannels { get; }
+    DbSet<OperatorPaymentMerchantClaim> OperatorPaymentMerchantClaims { get; }
+    DbSet<TravelerRefundAccount> TravelerRefundAccounts { get; }
+    bool IsPaymentMerchantUniqueConflict(DbUpdateException exception) => false;
+
+    // Direct Operator Refund (Phase 3 Tasks 11–13)
+    DbSet<DirectRefundCase> DirectRefundCases =>
+        throw new NotSupportedException("Direct refund cases are unavailable in this context.");
+    DbSet<DirectRefundTransfer> DirectRefundTransfers =>
+        throw new NotSupportedException("Direct refund transfers are unavailable in this context.");
+    DbSet<DirectRefundEvidence> DirectRefundEvidences =>
+        throw new NotSupportedException("Direct refund evidences are unavailable in this context.");
+    DbSet<DirectCommissionStatement> DirectCommissionStatements =>
+        throw new NotSupportedException("Direct commission statements are unavailable in this context.");
+    DbSet<DirectCommissionCalculation> DirectCommissionCalculations =>
+        throw new NotSupportedException("Direct commission calculations are unavailable in this context.");
+    DbSet<DirectCommissionLedgerEntry> DirectCommissionLedgerEntries =>
+        throw new NotSupportedException("Direct commission ledger is unavailable in this context.");
+    Task LockDirectCommissionIssuerAsync(long tourOperatorUserId, CancellationToken cancellationToken) => Task.CompletedTask;
+    DbSet<CommissionPaymentAttempt> CommissionPaymentAttempts =>
+        throw new NotSupportedException("Commission payment attempts are unavailable in this context.");
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 

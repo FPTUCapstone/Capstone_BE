@@ -11,7 +11,8 @@ namespace TripMate.Application.Features.Operator.Tours.List;
 
 public sealed class ListOperatorToursQueryHandler(
     IApplicationDbContext dbContext,
-    ICurrentUserService currentUser)
+    ICurrentUserService currentUser,
+    IDateTimeProvider clock)
     : IRequestHandler<ListOperatorToursQuery, Result<OperatorTourListResponse>>
 {
     public async Task<Result<OperatorTourListResponse>> Handle(
@@ -43,6 +44,7 @@ public sealed class ListOperatorToursQueryHandler(
             query = query.Where(tour => tour.Status == status);
         }
 
+        DateTimeOffset now = clock.UtcNow;
         int totalCount = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(tour => tour.UpdatedAtUtc)
@@ -58,11 +60,20 @@ public sealed class ListOperatorToursQueryHandler(
                 tour.VersionNo,
                 tour.UpdatedAtUtc,
                 tour.Schedules
-                    .Where(schedule => schedule.Status == TourScheduleStatus.Scheduled)
+                    .Where(schedule => schedule.Status == TourScheduleStatus.Scheduled && schedule.StartAtUtc > now)
                     .OrderBy(schedule => schedule.StartAtUtc)
                     .Select(schedule => (DateTimeOffset?)schedule.StartAtUtc)
                     .FirstOrDefault(),
-                tour.DestinationSummary))
+                tour.DestinationSummary)
+            {
+                PublishedAtUtc = tour.PublishedAtUtc,
+                UpcomingDepartureCount = tour.Schedules.Count(schedule =>
+                    schedule.Status == TourScheduleStatus.Scheduled && schedule.StartAtUtc > now),
+                CompletedDepartureCount = tour.Schedules.Count(schedule =>
+                    schedule.Status == TourScheduleStatus.Completed
+                    || (schedule.Status == TourScheduleStatus.Scheduled && schedule.EndAtUtc <= now)),
+                TotalDepartureCount = tour.Schedules.Count,
+            })
             .ToListAsync(cancellationToken);
         return Result.Success(new OperatorTourListResponse(items, page, pageSize, totalCount));
     }

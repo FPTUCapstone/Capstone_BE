@@ -179,6 +179,13 @@ public sealed class CreateTourBookingCommandHandler(
                 pricing.Value.DiscountAmount, pricing.Value.TotalAmount, participants, now,
                 now.Add(options.PaymentExpiry));
 
+            var hasReadyChannel = await dbContext.OperatorPaymentChannels
+                .AnyAsync(c => c.TourOperatorUserId == schedule.Tour.OperatorUserId
+                             && c.Status == OperatorPaymentChannel.StatusReady,
+                    transactionCancellationToken);
+            if (hasReadyChannel)
+                booking.StampPaymentFlow(PaymentFlow.OperatorDirect);
+
             schedule.ReserveCapacity(participants.Count);
             dbContext.Bookings.Add(booking);
             if (voucher is not null && pricing.Value.DiscountAmount > 0)

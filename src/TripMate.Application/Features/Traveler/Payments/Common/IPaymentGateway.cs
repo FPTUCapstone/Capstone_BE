@@ -65,6 +65,11 @@ public interface IPaymentGateway
         PaymentLinkCancellationRequest request,
         CancellationToken cancellationToken) => Task.CompletedTask;
 
+    /// <summary>Reconciles a stale commission attempt before safely replacing its remote order.</summary>
+    Task CancelCommissionPaymentLinkAsync(
+        PaymentLinkCancellationRequest request,
+        CancellationToken cancellationToken) => CancelPaymentLinkAsync(request, cancellationToken);
+
     /// <summary>Submits a server-owned refund to the channel that took the original payment.</summary>
     Task<RefundSubmissionResult> SubmitRefundAsync(
         RefundSubmissionRequest request,

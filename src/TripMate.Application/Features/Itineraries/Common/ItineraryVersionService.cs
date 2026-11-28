@@ -79,9 +79,12 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
+        // pois is already materialized in memory here, so the accommodation lookup is pre-fetched
+        // once into a set rather than letting IsAutoSchedulable issue one query per POI.
+        var accommodationPoiIds = await PlanningPoiEligibility.AccommodationPoiIdsAsync(dbContext, cancellationToken);
         var eligiblePois = pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi) || mandatoryIds.Contains(poi.Id))
+            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi, accommodationPoiIds) || mandatoryIds.Contains(poi.Id))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
                 request.ExplorationLongitude,

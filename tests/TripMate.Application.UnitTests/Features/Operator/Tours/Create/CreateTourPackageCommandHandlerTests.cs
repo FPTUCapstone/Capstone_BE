@@ -294,6 +294,87 @@ public sealed class CreateTourPackageCommandHandlerTests
         (await db.Tours.CountAsync()).Should().Be(1);
     }
 
+    [Fact]
+    public async Task Handle_WhenRevisionAlreadyExists_RejectsAnotherDraftForSameLineage()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var handler = new CreateTourPackageCommandHandler(db,
+            new FakeCurrentUserService { UserId = actor.Id }, new FakeDateTimeProvider());
+        var source = await handler.Handle(Command(88), CancellationToken.None);
+        var sourceTour = await db.Tours.SingleAsync();
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(sourceTour, TourStatus.Approved);
+        await db.SaveChangesAsync();
+
+        var first = await handler.Handle(Command(88) with { SourceTourId = source.Value.TourId }, CancellationToken.None);
+        var second = await handler.Handle(Command(88) with { SourceTourId = source.Value.TourId }, CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        second.IsFailure.Should().BeTrue();
+        second.ErrorCode.Should().Be("operator_tour.invalid_state");
+        (await db.Tours.CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Handle_WithDepositTerms_PersistsAndNormalizesDepositConfiguration()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var clock = new FakeDateTimeProvider();
+        var handler = new CreateTourPackageCommandHandler(db,
+            new FakeCurrentUserService { UserId = actor.Id }, clock);
+
+        var withDeposit = await handler.Handle(
+            Command(88) with
+            {
+                AllowDeposit = true,
+                DepositPercent = 30m,
+                BalanceDueDaysBeforeDeparture = 7,
+            },
+            CancellationToken.None);
+        var withoutDeposit = await handler.Handle(
+            Command(88) with
+            {
+                AllowDeposit = false,
+                DepositPercent = 50m,
+                BalanceDueDaysBeforeDeparture = 14,
+            },
+            CancellationToken.None);
+
+        withDeposit.IsSuccess.Should().BeTrue();
+        var savedWithDeposit = await db.Tours.SingleAsync(t => t.Id == withDeposit.Value.TourId);
+        savedWithDeposit.AllowDeposit.Should().BeTrue();
+        savedWithDeposit.DepositPercent.Should().Be(30m);
+        savedWithDeposit.BalanceDueDaysBeforeDeparture.Should().Be(7);
+
+        withoutDeposit.IsSuccess.Should().BeTrue();
+        var savedWithoutDeposit = await db.Tours.SingleAsync(t => t.Id == withoutDeposit.Value.TourId);
+        savedWithoutDeposit.AllowDeposit.Should().BeFalse();
+        savedWithoutDeposit.DepositPercent.Should().BeNull();
+        savedWithoutDeposit.BalanceDueDaysBeforeDeparture.Should().BeNull();
+
+        var validator = new CreateTourPackageCommandValidator(clock);
+        var badPercent = await validator.ValidateAsync(Command(88) with
+        {
+            AllowDeposit = true,
+            DepositPercent = 5m,
+            BalanceDueDaysBeforeDeparture = 7,
+        });
+        badPercent.IsValid.Should().BeFalse();
+
+        var badDeadline = await validator.ValidateAsync(Command(88) with
+        {
+            AllowDeposit = true,
+            DepositPercent = 30m,
+            BalanceDueDaysBeforeDeparture = 3,
+        });
+        badDeadline.IsValid.Should().BeFalse();
+    }
+
     private static CreateTourPackageCommand Command(long poiId) => new(
         "Da Nang day tour", "A full day visiting Da Nang landmarks.", null, 1_250_000m, 1,
         [TourAuthoringTestData.DestinationId], TourAuthoringTestData.PolicyTemplateId, null, null,

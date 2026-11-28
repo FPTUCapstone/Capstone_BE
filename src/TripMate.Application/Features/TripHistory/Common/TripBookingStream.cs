@@ -20,7 +20,7 @@ public static class TripBookingStream
         CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(windowSize);
-        var matching = Filter(dbContext.Bookings.AsNoTracking(), filter);
+        var matching = Filter(dbContext.Bookings.AsNoTracking(), filter, TripRefundHistory.BookingIds(dbContext));
 
         var totalCount = await matching.CountAsync(cancellationToken);
         if (totalCount == 0)
@@ -41,7 +41,7 @@ public static class TripBookingStream
     }
 
     /// <summary>The bookings of the filter's owner whose stored status maps to the filter's tab.</summary>
-    public static IQueryable<Booking> Filter(IQueryable<Booking> bookings, TripStreamFilter filter)
+    public static IQueryable<Booking> Filter(IQueryable<Booking> bookings, TripStreamFilter filter, IQueryable<long>? refundBookingIds = null)
     {
         // Derived from the classifier so the status-to-tab mapping lives in exactly one place.
         var statuses = Enum.GetValues<BookingStatus>()
@@ -58,8 +58,10 @@ public static class TripBookingStream
         // satisfies the comparison.
         var matching = bookings.Where(booking =>
             booking.TravelerUserId == filter.TravelerUserId
-            && booking.TourScheduleId > 0
-            && statuses.Contains(booking.Status));
+            && booking.TourScheduleId > 0);
+        matching = refundBookingIds is null ? matching.Where(b => statuses.Contains(b.Status))
+            : filter.Tab == "Cancelled" ? matching.Where(b => statuses.Contains(b.Status) || refundBookingIds.Contains(b.Id))
+            : matching.Where(b => statuses.Contains(b.Status) && !refundBookingIds.Contains(b.Id));
         if (filter.Range.FromUtc is { } from)
         {
             matching = matching.Where(booking => booking.TourSchedule.StartAtUtc >= from);

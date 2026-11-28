@@ -100,7 +100,10 @@ public sealed class UpdateTourDraftCommandHandler(
                 OperatorTourValidation.NormalizeText(request.Exclusions), now,
                 OperatorTourValidation.NormalizeText(request.Highlights),
                 OperatorTourValidation.NormalizeText(request.TravellerRequirements),
-                OperatorTourValidation.NormalizeText(request.TimeZoneId));
+                OperatorTourValidation.NormalizeText(request.TimeZoneId),
+                request.AllowDeposit,
+                request.AllowDeposit ? request.DepositPercent : null,
+                request.AllowDeposit ? request.BalanceDueDaysBeforeDeparture : null);
             var items = request.ItineraryItems.Select(item => TourItineraryItem.Create(
                 item.DayNo, item.SequenceNo, item.PoiId, item.PlannedTime, item.StayDurationMinutes, item.Notes,
                 item.IsRequiredForWeather)).ToList();

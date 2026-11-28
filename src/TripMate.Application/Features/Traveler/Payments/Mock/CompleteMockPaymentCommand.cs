@@ -60,6 +60,10 @@ public sealed class CompleteMockPaymentCommandHandler(
                 PaymentErrorCodes.PaymentNotFound, "Payment transaction was not found.");
         }
 
+        if (transaction.Gateway != PaymentGateway.Mock)
+            return Result.Failure<MockPaymentOutcomeResponse>(PaymentErrorCodes.PaymentMockDisabled,
+                "A real payment attempt cannot be completed through the mock gateway.");
+
         if (!Enum.TryParse<PaymentTransactionStatus>(request.Outcome?.Trim(), ignoreCase: true, out var outcome) ||
             outcome is not (PaymentTransactionStatus.Success or PaymentTransactionStatus.Cancelled or PaymentTransactionStatus.Expired))
         {

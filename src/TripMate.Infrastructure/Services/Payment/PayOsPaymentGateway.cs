@@ -133,6 +133,49 @@ public sealed class PayOsPaymentGateway(
         }
     }
 
+    public async Task CancelCommissionPaymentLinkAsync(
+        PaymentLinkCancellationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TripMate.Domain.Entities.CommissionPaymentAttempt.IsCommissionOrderCode(request.OrderCode))
+            throw new InvalidOperationException("Expected a commission payment order.");
+        if (string.IsNullOrWhiteSpace(options.PayOs.ClientId) || string.IsNullOrWhiteSpace(options.PayOs.ApiKey))
+            throw new InvalidOperationException("PayOS credentials are not configured.");
+
+        using var message = new HttpRequestMessage(HttpMethod.Get, $"{PayOsApiBaseUrl}/{request.OrderCode}");
+        message.Headers.Add("x-client-id", options.PayOs.ClientId);
+        message.Headers.Add("x-api-key", options.PayOs.ApiKey);
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        // The provider SDK distinguishes HTTP 404 (absent order) from transport/auth failures.
+        // Require a structured provider error too; an HTML proxy error is not evidence of absence.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            var missing = await response.Content.ReadFromJsonAsync<PayOsCancelResponse>(cancellationToken: cancellationToken);
+            if (!string.IsNullOrWhiteSpace(missing?.Code) && missing.Code != "00" && missing.Data is null)
+                return;
+        }
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadFromJsonAsync<PayOsCancelResponse>(cancellationToken: cancellationToken);
+        var data = json?.Data;
+        if (json?.Code != "00" || data?.OrderCode != request.OrderCode || data.AmountPaid != 0)
+            throw new InvalidOperationException("Cannot safely replace this commission payment order.");
+        if (data.Status == "CANCELLED") return;
+        if (data.Status != "PENDING")
+            throw new InvalidOperationException("Commission payment is paid, processing, or has an unknown state.");
+
+        // Check the cancellation result rather than treating a generic success envelope as proof.
+        using var cancel = new HttpRequestMessage(HttpMethod.Post, $"{PayOsApiBaseUrl}/{request.OrderCode}/cancel");
+        cancel.Headers.Add("x-client-id", options.PayOs.ClientId);
+        cancel.Headers.Add("x-api-key", options.PayOs.ApiKey);
+        cancel.Content = JsonContent.Create(new { cancellationReason = request.Reason });
+        using var cancelled = await httpClient.SendAsync(cancel, cancellationToken);
+        cancelled.EnsureSuccessStatusCode();
+        var result = await cancelled.Content.ReadFromJsonAsync<PayOsCancelResponse>(cancellationToken: cancellationToken);
+        if (result?.Code != "00" || result.Data?.OrderCode != request.OrderCode ||
+            result.Data.AmountPaid != 0 || result.Data.Status != "CANCELLED")
+            throw new InvalidOperationException("Provider has not confirmed cancellation of the commission payment.");
+    }
+
     // The documented PayOS API exposes payment-link operations and payouts, but not an API that
     // reverses a completed payment to its original payer. A payout requires beneficiary bank
     // details, which are not payment credentials and must not be invented from a transaction.
@@ -159,5 +202,11 @@ public sealed class PayOsPaymentGateway(
 
     private sealed record PayOsCancelResponse(
         [property: JsonPropertyName("code")] string? Code,
-        [property: JsonPropertyName("desc")] string? Desc);
+        [property: JsonPropertyName("desc")] string? Desc,
+        [property: JsonPropertyName("data")] PayOsPaymentState? Data);
+
+    private sealed record PayOsPaymentState(
+        [property: JsonPropertyName("orderCode")] long? OrderCode,
+        [property: JsonPropertyName("amountPaid")] long? AmountPaid,
+        [property: JsonPropertyName("status")] string? Status);
 }

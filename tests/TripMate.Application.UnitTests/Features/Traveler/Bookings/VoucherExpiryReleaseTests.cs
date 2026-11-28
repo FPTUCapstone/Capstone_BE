@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Bookings.Expiry;
@@ -72,7 +73,8 @@ public sealed class VoucherExpiryReleaseTests
         var (booking, voucher) = await SeedDueBookingAsync(db);
         var handler = new CreateOrReusePaymentLinkCommandHandler(db,
             new FakeCurrentUserService { UserId = booking.TravelerUserId, Role = nameof(UserRole.Traveler) },
-            Clock(), null!, new PaymentOptions { Provider = "Mock" });
+            Clock(), null!, new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+            new PaymentOptions { Provider = "Mock" }, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
         var result = await handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None);
 
@@ -195,7 +197,8 @@ public sealed class VoucherExpiryReleaseTests
         db.ThrowOnSaveConcurrency = true;
         var handler = new CreateOrReusePaymentLinkCommandHandler(db,
             new FakeCurrentUserService { UserId = booking.TravelerUserId, Role = nameof(UserRole.Traveler) },
-            Clock(), null!, new PaymentOptions { Provider = "Mock" });
+            Clock(), null!, new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+            new PaymentOptions { Provider = "Mock" }, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() =>
             handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None));

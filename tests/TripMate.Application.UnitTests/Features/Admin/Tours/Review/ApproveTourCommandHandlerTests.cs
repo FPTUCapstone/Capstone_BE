@@ -480,4 +480,126 @@ public sealed class ApproveTourCommandHandlerTests
         result.ErrorCode.Should().Be(OperatorTourErrorCodes.InvalidState);
         (await db.TourApprovalNotices.AnyAsync()).Should().BeFalse();
     }
+
+    // [DH-04b] Supersede prior live version when v2 is approved
+
+    [Theory]
+    [InlineData(TourStatus.Published)]
+    [InlineData(TourStatus.Approved)]
+    public async Task Handle_WhenV2Approved_SupersedesLivePriorVersion(TourStatus v1Status)
+    {
+        // Arrange
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var now = Now;
+        var clock = new FakeDateTimeProvider { UtcNow = now };
+        var staffId = 55L;
+
+        // Create v1 tour in live status
+        var v1 = await PublicTourTestData.AddTourAsync(db, 1, v1Status);
+        // Set PublishedAtUtc so CanUnpublish returns true for the Approved case
+        typeof(Tour).GetProperty(nameof(Tour.PublishedAtUtc))!.SetValue(v1, (DateTimeOffset?)now.AddMinutes(-10));
+        await db.SaveChangesAsync();
+
+        // Create v2 tour (a Pending draft revision of v1)
+        var v2 = PublicTourTestData.NewTour(1, "v2 of Hoi An food tour");
+        v2.SetVersionLineage(v1.Id, 2);
+        v2.SubmitForReview(now.AddDays(-1));
+        db.Tours.Add(v2);
+        await db.SaveChangesAsync();
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = staffId, Role = nameof(UserRole.Staff) },
+            clock);
+
+        // Act
+        var result = await handler.Handle(new ApproveTourCommand(v2.Id, ValidChecklist()), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
+
+        var updatedV1 = await db.Tours.SingleAsync(t => t.Id == v1.Id);
+        updatedV1.Status.Should().Be(TourStatus.Inactive, "approving v2 must supersede v1 to Inactive");
+
+        var updatedV2 = await db.Tours.SingleAsync(t => t.Id == v2.Id);
+        updatedV2.Status.Should().Be(TourStatus.Approved, "v2 must be Approved");
+
+        // Supersede audit log recorded
+        var supersededAudit = await db.AuditLogs.SingleAsync(a =>
+            a.AffectedEntityId == v1.Id && a.ActionType == AuditActionTypes.TourUnpublished);
+        supersededAudit.ActorUserId.Should().Be(staffId);
+        supersededAudit.Result.Should().Be(AuditOutcome.Success);
+        var afterJson = JsonDocument.Parse(supersededAudit.AfterData!).RootElement;
+        afterJson.GetProperty("SupersededByTourId").GetInt64().Should().Be(v2.Id);
+        afterJson.GetProperty("Status").GetString().Should().Be(TourStatus.Inactive.ToString());
+    }
+
+    [Fact]
+    public async Task Handle_WhenV2Approved_PreservesV1Schedules()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var now = Now;
+        var clock = new FakeDateTimeProvider { UtcNow = now };
+
+        var v1 = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Published);
+        var v1ScheduleCount = await db.TourSchedules.CountAsync(s => s.TourId == v1.Id);
+
+        var v2 = PublicTourTestData.NewTour(1, "v2 edition");
+        v2.SetVersionLineage(v1.Id, 2);
+        v2.SubmitForReview(now.AddDays(-1));
+        db.Tours.Add(v2);
+        await db.SaveChangesAsync();
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = 55, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var result = await handler.Handle(new ApproveTourCommand(v2.Id, ValidChecklist()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
+
+        // v1 schedules preserved — only status changes, schedules untouched
+        var v1ScheduleCountAfter = await db.TourSchedules.CountAsync(s => s.TourId == v1.Id);
+        v1ScheduleCountAfter.Should().Be(v1ScheduleCount, "superseding must not touch v1 schedules");
+    }
+
+    [Fact]
+    public async Task Handle_WhenV2ApprovedButV1NotInLiveState_DoesNotChangeV1()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var now = Now;
+        var clock = new FakeDateTimeProvider { UtcNow = now };
+
+        // v1 in Inactive status (not Published/Approved live) — not supersede-eligible
+        var v1 = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Inactive);
+
+        var v2 = PublicTourTestData.NewTour(1, "v2 edition");
+        v2.SetVersionLineage(v1.Id, 2);
+        v2.SubmitForReview(now.AddDays(-1));
+        db.Tours.Add(v2);
+        await db.SaveChangesAsync();
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = 55, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var result = await handler.Handle(new ApproveTourCommand(v2.Id, ValidChecklist()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
+
+        // v1 must remain Inactive (was not in Published/Approved live state)
+        var updatedV1 = await db.Tours.SingleAsync(t => t.Id == v1.Id);
+        updatedV1.Status.Should().Be(TourStatus.Inactive);
+
+        // No TourUnpublished audit added for v1
+        var unpublishAudits = await db.AuditLogs
+            .Where(a => a.AffectedEntityId == v1.Id && a.ActionType == AuditActionTypes.TourUnpublished)
+            .ToListAsync();
+        unpublishAudits.Should().BeEmpty();
+    }
 }

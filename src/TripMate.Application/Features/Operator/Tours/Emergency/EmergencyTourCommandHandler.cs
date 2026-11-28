@@ -21,7 +21,8 @@ public sealed class EmergencyTourCommandHandler(
     ICurrentUserService currentUser,
     IDateTimeProvider clock,
     IPasswordHasherService passwordHasher,
-    IWeatherSafetyReviewNotifier reviewNotifier)
+    IWeatherSafetyReviewNotifier reviewNotifier,
+    IPiiProtector? piiProtector = null)
 {
     public async Task<Result<EmergencyTourActionResponse>> Handle(
         CancelBeforeDepartureCommand request,
@@ -222,7 +223,7 @@ public sealed class EmergencyTourCommandHandler(
 
                     EmergencyRefundHandoffResult refundHandoff = await EmergencyRefundHandoff.ApplyAsync(
                         dbContext, operatorId, commandId, schedule, impact.Bookings, isPreStart, reason,
-                        now, token);
+                        now, token, piiProtector);
 
                     List<WeatherSafetyReview> openReviews = await dbContext.WeatherSafetyReviews
                         .Where(review => review.TourScheduleId == schedule.Id

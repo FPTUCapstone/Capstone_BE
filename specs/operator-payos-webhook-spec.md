@@ -1,0 +1,14 @@
+# Operator payOS webhook completion — 25/11/2026
+
+Approved scope: explicit user instruction to complete real per-TO webhook integration following approved direct-payment spec. Preserve all existing uncommitted work. No money transfer, production deployment or reset of local DB authorized by this task.
+
+- Reuse payOS `POST https://api-merchant.payos.vn/confirm-webhook` with the channel's Client ID/API Key, a server-built HTTPS URL ending `/api/v1/payments/payos/channel/{channelId}/webhook`, no caller-supplied URL. Validate HTTP status, provider `code=00`, returned URL and beneficiary data; no key/beneficiary logging or raw provider diagnostics.
+- Real provider confirmation sends a signed sample webhook: accept signed unknown-order probes while PendingVerification, with no payment mutation. Unsigned/bad-key probes fail. Never create a dummy payment to validate keys.
+- Persist successful registration URL/time/technical verification before Admin approval. Keep manual ownership review: successful registration alone does not prove legal ownership. Clear prior proof whenever credentials change; disabled channels cannot self-verify or self-submit. Admin approval requires current successful registration; no empty URL bypass.
+- Optimistic concurrency protects verify/save/admin decisions. External HTTP outside DB transaction, bounded timeout/no redirect; stale in-flight verification must not approve newer keys. Reason/version/admin audit retained; no secrets in audit.
+- Bind each new operator payment attempt immutably to channel ID/version and encrypted checksum-key reference. Add idempotent SQL migration, no backfill guessing. Known operator callbacks must match binding, order, paymentLinkId, exact amount and VND; use original key even if current channel changed/disabled. Existing direct attempts without trusted binding fail closed to reconciliation; legacy flow remains on original route and cannot settle direct attempts.
+- Process only authenticated success events; signed non-success notification must not cancel a payment. Unknown signed registration probes are acknowledgements only. Completion pipeline retains duplicate/late-payment behavior; don't invent a second accounting pipeline.
+- Production URL must be publicly reachable HTTPS; missing/non-HTTPS/credentials/query/fragment/loopback config fails safely. Admin still reviews beneficiary identity. No automatic bank-account ownership claim.
+- Credentials remain encrypted at rest. Shared Data Protection key ring must persist across instances/restarts. New nullable snapshot fields never appear in public DTOs. Verify does not create a charge or send funds, but registering a real channel changes its provider webhook; do not run that live mutation without reviewing target channel/config.
+
+Source verified 25/11/2026: https://payos.vn/docs/api/ (`confirm-webhook` API and signed sample callback). API change not needed for FE: same status/timestamps/allowedActions contract.

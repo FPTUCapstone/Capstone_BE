@@ -1,14 +1,14 @@
 ﻿{
-  "GeneratedAtUtc": "2026-10-19T01:57:44.0109807\u002B00:00",
+  "GeneratedAtUtc": "2026-11-25T12:10:26.8770128\u002B00:00",
   "Entries": [
     {
       "ScenarioId": "const-n12-m0-s81",
       "Category": "Synthetic-Constant",
       "Candidates": 12,
       "Mandatory": 0,
-      "NodesExpanded": 2241,
-      "MedianMs": 3.027,
-      "NsPerNode": 1350.6,
+      "NodesExpanded": 1636,
+      "MedianMs": 3.454,
+      "NsPerNode": 2111,
       "SearchCompleted": true
     },
     {
@@ -16,9 +16,9 @@
       "Category": "Synthetic-Constant",
       "Candidates": 12,
       "Mandatory": 1,
-      "NodesExpanded": 1245,
-      "MedianMs": 2.594,
-      "NsPerNode": 2083.5,
+      "NodesExpanded": 1030,
+      "MedianMs": 3.252,
+      "NsPerNode": 3157.3,
       "SearchCompleted": true
     },
     {
@@ -26,9 +26,9 @@
       "Category": "Synthetic-Constant",
       "Candidates": 13,
       "Mandatory": 0,
-      "NodesExpanded": 3509,
-      "MedianMs": 5,
-      "NsPerNode": 1424.8,
+      "NodesExpanded": 2759,
+      "MedianMs": 5.929,
+      "NsPerNode": 2148.9,
       "SearchCompleted": true
     },
     {
@@ -36,9 +36,9 @@
       "Category": "Synthetic-Constant",
       "Candidates": 13,
       "Mandatory": 1,
-      "NodesExpanded": 1342,
-      "MedianMs": 3.212,
-      "NsPerNode": 2393.4,
+      "NodesExpanded": 1225,
+      "MedianMs": 3.735,
+      "NsPerNode": 3048.9,
       "SearchCompleted": true
     },
     {
@@ -46,9 +46,9 @@
       "Category": "Synthetic-Constant",
       "Candidates": 14,
       "Mandatory": 0,
-      "NodesExpanded": 4456,
-      "MedianMs": 6.206,
-      "NsPerNode": 1392.7,
+      "NodesExpanded": 3478,
+      "MedianMs": 8.926,
+      "NsPerNode": 2566.5,
       "SearchCompleted": true
     },
     {
@@ -56,9 +56,9 @@
       "Category": "Synthetic-Constant",
       "Candidates": 14,
       "Mandatory": 1,
-      "NodesExpanded": 1265,
-      "MedianMs": 3.187,
-      "NsPerNode": 2519.1,
+      "NodesExpanded": 1225,
+      "MedianMs": 5.348,
+      "NsPerNode": 4366.1,
       "SearchCompleted": true
     },
     {
@@ -66,9 +66,9 @@
       "Category": "Synthetic-Constant",
       "Candidates": 15,
       "Mandatory": 0,
-      "NodesExpanded": 6490,
-      "MedianMs": 10.017,
-      "NsPerNode": 1543.4,
+      "NodesExpanded": 3799,
+      "MedianMs": 15.292,
+      "NsPerNode": 4025.3,
       "SearchCompleted": true
     },
     {
@@ -76,9 +76,9 @@
       "Category": "Synthetic-Constant",
       "Candidates": 15,
       "Mandatory": 1,
-      "NodesExpanded": 2294,
-      "MedianMs": 5.901,
-      "NsPerNode": 2572.2,
+      "NodesExpanded": 1866,
+      "MedianMs": 7.08,
+      "NsPerNode": 3793.9,
       "SearchCompleted": true
     },
     {
@@ -86,9 +86,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 12,
       "Mandatory": 0,
-      "NodesExpanded": 2187,
-      "MedianMs": 3.369,
-      "NsPerNode": 1540.5,
+      "NodesExpanded": 1823,
+      "MedianMs": 4.368,
+      "NsPerNode": 2395.8,
       "SearchCompleted": true
     },
     {
@@ -96,9 +96,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 12,
       "Mandatory": 1,
-      "NodesExpanded": 1224,
-      "MedianMs": 3.039,
-      "NsPerNode": 2482.6,
+      "NodesExpanded": 1085,
+      "MedianMs": 5.169,
+      "NsPerNode": 4764.3,
       "SearchCompleted": true
     },
     {
@@ -106,9 +106,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 13,
       "Mandatory": 0,
-      "NodesExpanded": 3442,
-      "MedianMs": 5.5,
-      "NsPerNode": 1597.9,
+      "NodesExpanded": 3046,
+      "MedianMs": 7.648,
+      "NsPerNode": 2510.9,
       "SearchCompleted": true
     },
     {
@@ -116,9 +116,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 13,
       "Mandatory": 1,
-      "NodesExpanded": 1340,
-      "MedianMs": 3.286,
-      "NsPerNode": 2452.5,
+      "NodesExpanded": 1243,
+      "MedianMs": 9.847,
+      "NsPerNode": 7922.3,
       "SearchCompleted": true
     },
     {
@@ -126,9 +126,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 14,
       "Mandatory": 0,
-      "NodesExpanded": 4365,
-      "MedianMs": 6.856,
-      "NsPerNode": 1570.6,
+      "NodesExpanded": 3507,
+      "MedianMs": 15.484,
+      "NsPerNode": 4415.1,
       "SearchCompleted": true
     },
     {
@@ -136,9 +136,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 14,
       "Mandatory": 1,
-      "NodesExpanded": 1263,
-      "MedianMs": 3.607,
-      "NsPerNode": 2855.6,
+      "NodesExpanded": 1227,
+      "MedianMs": 9.67,
+      "NsPerNode": 7881.1,
       "SearchCompleted": true
     },
     {
@@ -146,9 +146,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 15,
       "Mandatory": 0,
-      "NodesExpanded": 6282,
-      "MedianMs": 10.003,
-      "NsPerNode": 1592.4,
+      "NodesExpanded": 5227,
+      "MedianMs": 21.042,
+      "NsPerNode": 4025.5,
       "SearchCompleted": true
     },
     {
@@ -156,9 +156,9 @@
       "Category": "Synthetic-RealTimeFit",
       "Candidates": 15,
       "Mandatory": 1,
-      "NodesExpanded": 2260,
-      "MedianMs": 5.97,
-      "NsPerNode": 2641.7,
+      "NodesExpanded": 1963,
+      "MedianMs": 8.226,
+      "NsPerNode": 4190.6,
       "SearchCompleted": true
     },
     {
@@ -167,8 +167,8 @@
       "Candidates": 40,
       "Mandatory": 0,
       "NodesExpanded": 200000,
-      "MedianMs": 913.399,
-      "NsPerNode": 4567,
+      "MedianMs": 1231.895,
+      "NsPerNode": 6159.5,
       "SearchCompleted": false
     },
     {
@@ -177,8 +177,8 @@
       "Candidates": 40,
       "Mandatory": 1,
       "NodesExpanded": 200000,
-      "MedianMs": 928.814,
-      "NsPerNode": 4644.1,
+      "MedianMs": 1448.941,
+      "NsPerNode": 7244.7,
       "SearchCompleted": false
     },
     {
@@ -187,8 +187,8 @@
       "Candidates": 40,
       "Mandatory": 3,
       "NodesExpanded": 200000,
-      "MedianMs": 959,
-      "NsPerNode": 4795,
+      "MedianMs": 1398.676,
+      "NsPerNode": 6993.4,
       "SearchCompleted": false
     },
     {
@@ -197,8 +197,8 @@
       "Candidates": 40,
       "Mandatory": 6,
       "NodesExpanded": 200000,
-      "MedianMs": 1181.814,
-      "NsPerNode": 5909.1,
+      "MedianMs": 840.172,
+      "NsPerNode": 4200.9,
       "SearchCompleted": false
     },
     {
@@ -207,8 +207,8 @@
       "Candidates": 40,
       "Mandatory": 3,
       "NodesExpanded": 200000,
-      "MedianMs": 791.997,
-      "NsPerNode": 3960,
+      "MedianMs": 584.561,
+      "NsPerNode": 2922.8,
       "SearchCompleted": false
     }
   ]

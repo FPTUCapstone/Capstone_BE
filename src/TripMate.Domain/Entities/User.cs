@@ -51,6 +51,16 @@ public class User : BaseEntity
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 
+    public void BecomeServiceProvider(DateTimeOffset nowUtc)
+    {
+        if (Role != UserRole.Traveler || Status != AccountStatus.Active || !EmailVerifiedAtUtc.HasValue)
+            throw new InvalidOperationException("A verified Traveler account is required.");
+
+        Role = UserRole.ServiceProvider;
+        SessionVersion = checked(SessionVersion + 1);
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
+    }
+
     public bool TryActivateAfterContractSignature(DateTimeOffset nowUtc)
     {
         if (Role != UserRole.TourOperator || Status != AccountStatus.PendingContractSignature) return false;

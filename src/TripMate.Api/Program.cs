@@ -256,6 +256,15 @@ try
                     Window = SupportChatRateLimiter.Window,
                     QueueLimit = 0,
                 }));
+        options.AddPolicy(PublicWeatherRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = PublicWeatherRateLimiter.PermitLimit,
+                    Window = PublicWeatherRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
         options.OnRejected = static async (context, cancellationToken) =>
         {
             // The 429 payload matches the documented ProblemDetails contract and carries no
