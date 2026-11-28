@@ -3,9 +3,17 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using TripMate.Api.Authorization;
 using TripMate.Api.Common;
+using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.Users.Common;
+using TripMate.Application.Features.Admin.Users.Unlock;
+using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.Features.Payouts.DailySettlement.Admin;
 using TripMate.Application.Features.Payouts.DailySettlement.Reads;
+using TripMate.Domain.Common;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
@@ -16,7 +24,8 @@ namespace TripMate.Api.Controllers.V1;
 /// </summary>
 [Authorize(Roles = "Staff,Administrator")]
 [Route("api/v1/admin/payout-settlements")]
-public sealed class AdminPayoutSettlementsController(ISender sender) : ApiControllerBase(sender)
+public sealed class AdminPayoutSettlementsController(
+    ISender sender, ICurrentUserService currentUser, IAuditFailureRecorder failures) : ApiControllerBase(sender)
 {
     [HttpGet]
     public async Task<IActionResult> Get([FromQuery] GetPayoutSettlementsQuery query, CancellationToken cancellationToken)
@@ -52,13 +61,39 @@ public sealed class AdminPayoutSettlementsController(ISender sender) : ApiContro
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
-    /// <summary>Part of UC-48 (BR-189, PD-9A, Q4): Staff-only unlock of a Tour Operator the daily
-    /// run locked for unrecovered pending debt. Refused with MSG199 while debt remains.</summary>
+    /// <summary>Staff-only Tour Operator unlock with a recorded reason and the UC-48 settlement checks.</summary>
     [HttpPost("tour-operators/{tourOperatorUserId:long}/unlock")]
     [Authorize(Roles = "Staff")]
-    public async Task<IActionResult> UnlockTourOperator(long tourOperatorUserId, CancellationToken cancellationToken)
+    [AuthorizationFailureAudit(AuditActionTypes.UserUnlock, AuditEntityTypes.User, "tourOperatorUserId")]
+    [ProducesResponseType<UnlockTourOperatorResponseDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> UnlockTourOperator(
+        long tourOperatorUserId,
+        [FromBody] AccountModerationRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken cancellationToken)
     {
-        var result = await Sender.Send(new UnlockTourOperatorCommand(tourOperatorUserId), cancellationToken);
-        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+        Response.Headers.CacheControl = "no-store";
+        var result = await Sender.Send(
+            new UnlockUserAccountCommand(tourOperatorUserId, request.Reason, idempotencyKey, UserRole.TourOperator),
+            cancellationToken);
+        if (result.IsSuccess)
+            return Ok(new UnlockTourOperatorResponseDto(
+                result.Value.UserId, result.Value.RestoredStatus.ToString(), result.Value.UnlockedAtUtc));
+
+        if (result.ErrorCode is UserAdministrationErrorCodes.Forbidden or UserAdministrationErrorCodes.NotFound)
+        {
+            await failures.RecordAsync(new AuditFailureEvent(currentUser.UserId, AuditActionTypes.UserUnlock,
+                AuditEntityTypes.User, null, result.ErrorCode));
+        }
+
+        var errorCode = result.ErrorCode switch
+        {
+            UserAdministrationErrorCodes.NotFound => DailyPayoutErrorCodes.OperatorNotFound,
+            UserAdministrationErrorCodes.NotLocked => DailyPayoutErrorCodes.OperatorNotLocked,
+            _ => result.ErrorCode!,
+        };
+        return HandleFailure(Result.Failure(errorCode, result.ErrorMessage!, result.ErrorMetadata));
     }
+
+    public sealed record UnlockTourOperatorResponseDto(long TourOperatorUserId, string Status, DateTimeOffset UpdatedAtUtc);
 }

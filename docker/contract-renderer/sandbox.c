@@ -22,7 +22,19 @@
 #define LANDLOCK_ACCESS_FS_TRUNCATE (1ULL << 14)
 #endif
 
-static void fail(const char *stage) { perror(stage); exit(125); }
+static _Noreturn void fail(const char *stage) { perror(stage); exit(125); }
+static int landlock_supported(long abi, int probe_error) {
+    if (abi < 0) {
+        fprintf(stderr, "Landlock ABI probe failed: result=%ld errno=%d (%s); required>=3\n",
+            abi, probe_error, strerror(probe_error));
+        return 0;
+    }
+    if (abi < 3) {
+        fprintf(stderr, "Landlock ABI unsupported: detected=%ld required>=3\n", abi);
+        return 0;
+    }
+    return 1;
+}
 static void limit(int resource, rlim_t value) {
     struct rlimit bound = {value, value};
     if (setrlimit(resource, &bound)) fail("resource limit");
@@ -68,10 +80,9 @@ int main(int argc, char **argv) {
     if (sched_setaffinity(0, sizeof(selected), &selected)) fail("CPU limit");
 
     /* ABI 3 is required: it includes cross-directory REFER and file TRUNCATE mediation. */
-    if (syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION) < 3) {
-        fprintf(stderr, "Landlock ABI >= 3 is required on this host\n");
-        return 125;
-    }
+    long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+    int probe_error = abi < 0 ? errno : 0;
+    if (!landlock_supported(abi, probe_error)) return 125;
     uint64_t read = LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_READ_DIR;
     uint64_t write = LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_REMOVE_DIR | LANDLOCK_ACCESS_FS_REMOVE_FILE
         | LANDLOCK_ACCESS_FS_MAKE_DIR | LANDLOCK_ACCESS_FS_MAKE_REG | LANDLOCK_ACCESS_FS_MAKE_SYM | LANDLOCK_ACCESS_FS_MAKE_SOCK

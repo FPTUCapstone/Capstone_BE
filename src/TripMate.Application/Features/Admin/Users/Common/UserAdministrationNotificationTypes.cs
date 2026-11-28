@@ -2,6 +2,9 @@ namespace TripMate.Application.Features.Admin.Users.Common;
 
 public static class UserAdministrationNotificationTypes
 {
+    public const string AccountLocked = "AccountLocked";
+    public const string AccountLockedTitle = "Your TripMate account has been locked";
+    public const string AccountLockedBody = "Your sessions have ended. Contact TripMate support for help with your account.";
     public const string AccountUnlocked = "AccountUnlocked";
     public const string AccountUnlockedTitle = "Your TripMate account has been unlocked";
     public const string AccountUnlockedBody =

@@ -9,6 +9,10 @@ Definition of done: real container smoke test and affected tests pass, isolation
 
 ## Execution evidence
 
+Diagnostic follow-up: write failing native diagnostic tests for ABI 1/2, supported ABI 3 and ENOSYS/EOPNOTSUPP/EPERM; implement distinct safe messages, run native tests and image smoke, update CI/runbook, review, commit and push to the existing BE branch. Approved by the user on 2026-11-28. Actual Railway errno remains unknown until redeployment.
+
+Diagnostic verification: baseline 9 worker tests passed. Native harness failed before the diagnostic function existed, then all 3 diagnostic tests (with ABI/errno subcases) passed in Docker. Full Vietnamese-PDF/auth/timeout smoke passed. Disabling Landlock syscalls produced the expected exit 1 with `result=-1 errno=38 (Function not implemented)` in startup output. Production image contains no diagnostic test artifacts. No .NET, FE, database, or sandbox-policy changes; actual Railway diagnosis is still pending its new log.
+
 - User approved spec and plan on 2026-11-28.
 - Baseline renderer tests: 25 passed; opt-in Docker integration test skipped.
 - Dedicated private service selected after isolation review; local Docker adapter preserved.

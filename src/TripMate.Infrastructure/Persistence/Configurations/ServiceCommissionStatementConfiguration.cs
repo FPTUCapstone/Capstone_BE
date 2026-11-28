@@ -25,6 +25,7 @@ public sealed class ServiceCommissionStatementConfiguration : IEntityTypeConfigu
         builder.Property(s => s.DueDate).HasColumnName("due_date").IsRequired();
         builder.Property(s => s.Status).HasColumnName("status").HasMaxLength(20).IsUnicode(false).HasDefaultValue(ServiceCommissionStatement.StatusIssued).IsRequired();
         builder.Property(s => s.BankTransferReference).HasColumnName("bank_transfer_reference").HasMaxLength(ServiceCommissionStatement.BankTransferReferenceMaxLength);
+        builder.Property(s => s.VerifiedBankTransferReference).HasColumnName("verified_bank_transfer_reference").HasMaxLength(ServiceCommissionStatement.BankTransferReferenceMaxLength);
         builder.Property(s => s.ReportedAtUtc).HasColumnName("reported_at").AsUtcDateTime2();
         builder.Property(s => s.ConfirmedByUserId).HasColumnName("confirmed_by_user_id");
         builder.Property(s => s.ConfirmedAtUtc).HasColumnName("confirmed_at").AsUtcDateTime2();
@@ -41,5 +42,10 @@ public sealed class ServiceCommissionStatementConfiguration : IEntityTypeConfigu
         builder.HasIndex(s => s.ProviderId).HasDatabaseName("IX_ServiceCommissionStatements_Provider");
         builder.HasIndex(s => s.Period).HasDatabaseName("IX_ServiceCommissionStatements_Period");
         builder.HasIndex(s => s.Status).HasDatabaseName("IX_ServiceCommissionStatements_Status");
+        builder.HasIndex(s => s.VerifiedBankTransferReference).IsUnique()
+            .HasFilter("[verified_bank_transfer_reference] IS NOT NULL")
+            .HasDatabaseName(VerifiedBankReferenceIndex);
     }
+
+    internal const string VerifiedBankReferenceIndex = "UX_ServiceCommissionStatements_VerifiedBankReference";
 }
