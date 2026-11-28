@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
+using TripMate.Api.OpenApi;
 using TripMate.Application.Features.Bookings.DirectRefunds.Evidence;
 using TripMate.Application.Features.Bookings.DirectRefunds.Get;
 using TripMate.Application.Features.Bookings.DirectRefunds.Transfer;
@@ -41,6 +42,7 @@ public sealed class OperatorDirectRefundsController(ISender sender) : ApiControl
     }
 
     /// <summary>POST /api/v1/operator/direct-refunds/{id}/evidence</summary>
+    [IncludeOperationSecurity]
     [HttpPost("{id:long}/evidence")]
     [RequestSizeLimit(6 * 1024 * 1024)]
     [Consumes("multipart/form-data")]
@@ -125,3 +127,4 @@ public sealed class UploadEvidenceRequest
 {
     public IFormFile? File { get; set; }
 }
+

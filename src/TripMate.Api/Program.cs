@@ -125,6 +125,8 @@ try
         options.OperationFilter<AllowAnonymousOperationFilter>();
         options.OperationFilter<TourSearchOperationFilter>();
         options.OperationFilter<QueryParameterCamelCaseOperationFilter>();
+        options.OperationFilter<FormPropertyCamelCaseOperationFilter>();
+        options.OperationFilter<ExplicitSecurityOperationFilter>();
         options.OperationFilter<TripReviewOperationFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
