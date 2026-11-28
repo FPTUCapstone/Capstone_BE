@@ -169,6 +169,12 @@ public sealed class CspItinerarySolver(
     /// </summary>
     internal Func<WeightedObjectiveInputs, CspOptions, IObjectiveKernel>? WeightedKernelFactoryForTest { get; init; }
 
+    /// <summary>
+    /// Nguồn deadline điều khiển được cho test. Production luôn dùng <see cref="Stopwatch"/> và
+    /// <see cref="CancellationTokenSource.CancelAfter(int)"/> qua nguồn hệ thống mặc định.
+    /// </summary>
+    internal Func<Stopwatch, int, CancellationToken, ISolveDeadlineSource>? DeadlineSourceFactoryForTest { get; init; }
+
     internal static RoutingContext CreatePrimaryContext(
         GenerationInput input,
         RouteDurationMatrix matrix,
@@ -221,7 +227,11 @@ public sealed class CspItinerarySolver(
         var clock = Stopwatch.StartNew();
 
         // Một mốc thời gian cứng cho cả lần giải (review Phase 3): bước duyệt, mọi lần gọi evaluator, polish và bước
-        using var deadline = new SolveDeadline(clock, _cspOptions.TimeLimitMilliseconds, cancellationToken);
+        using var deadline = DeadlineSourceFactoryForTest is { } deadlineSourceFactory
+            ? new SolveDeadline(
+                deadlineSourceFactory(clock, _cspOptions.TimeLimitMilliseconds, cancellationToken),
+                _cspOptions.TimeLimitMilliseconds)
+            : new SolveDeadline(clock, _cspOptions.TimeLimitMilliseconds, cancellationToken);
         int maxNodes = _cspOptions.Mode == ObjectiveMode.WeightedUtility && _cspOptions.WeightedMaxNodes.HasValue
             ? _cspOptions.WeightedMaxNodes.Value
             : _cspOptions.MaxNodes;
@@ -480,23 +490,51 @@ public sealed class CspItinerarySolver(
     /// Mốc thời gian chung của một lần giải (<see cref="CspOptions.TimeLimitMilliseconds"/>), đo bằng đồng hồ bắt đầu cùng
     /// lần giải. <see cref="Token"/> bị hủy khi tới mốc hoặc khi bên gọi hủy, để một lần chấm đang chạy dừng ngay.
     /// </summary>
-    internal sealed class SolveDeadline : IDisposable
+    internal interface ISolveDeadlineSource : IDisposable
+    {
+        long ElapsedMilliseconds { get; }
+
+        CancellationToken Token { get; }
+    }
+
+    private sealed class SystemSolveDeadlineSource : ISolveDeadlineSource
     {
         private readonly Stopwatch _clock;
-        private readonly int _limitMilliseconds;
         private readonly CancellationTokenSource _source;
 
-        public SolveDeadline(Stopwatch clock, int limitMilliseconds, CancellationToken callerToken)
+        public SystemSolveDeadlineSource(Stopwatch clock, int limitMilliseconds, CancellationToken callerToken)
         {
             _clock = clock;
-            _limitMilliseconds = limitMilliseconds;
             _source = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
             _source.CancelAfter(Math.Max(0, limitMilliseconds));
         }
 
+        public long ElapsedMilliseconds => _clock.ElapsedMilliseconds;
+
         public CancellationToken Token => _source.Token;
 
-        public bool Expired => _clock.ElapsedMilliseconds >= _limitMilliseconds;
+        public void Dispose() => _source.Dispose();
+    }
+
+    internal sealed class SolveDeadline : IDisposable
+    {
+        private readonly ISolveDeadlineSource _source;
+        private readonly int _limitMilliseconds;
+
+        public SolveDeadline(Stopwatch clock, int limitMilliseconds, CancellationToken callerToken)
+            : this(new SystemSolveDeadlineSource(clock, limitMilliseconds, callerToken), limitMilliseconds)
+        {
+        }
+
+        internal SolveDeadline(ISolveDeadlineSource source, int limitMilliseconds)
+        {
+            _source = source ?? throw new ArgumentNullException(nameof(source));
+            _limitMilliseconds = limitMilliseconds;
+        }
+
+        public CancellationToken Token => _source.Token;
+
+        public bool Expired => _source.ElapsedMilliseconds >= _limitMilliseconds;
 
         public void ThrowIfExpired()
         {
