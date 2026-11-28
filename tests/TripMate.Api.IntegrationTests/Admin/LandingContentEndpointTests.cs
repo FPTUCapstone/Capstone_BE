@@ -1,0 +1,135 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+
+using FluentAssertions;
+
+using Microsoft.EntityFrameworkCore;
+
+using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
+
+namespace TripMate.Api.IntegrationTests.Admin;
+
+[Collection(nameof(TripMateApiFactory))]
+public sealed class LandingContentEndpointTests
+{
+    [Fact]
+    public async Task Get_WithTravelerRole_ReturnsForbidden()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = await CreateClientAsync(factory, UserRole.Traveler, userId: 101);
+
+        var response = await client.GetAsync("/api/v1/admin/landing-content");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task PublicGet_WithoutAuthentication_ReturnsOnlyTheLatestPublishedSnapshot()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = factory.CreateClient();
+        await SeedPublishedVersionAsync(factory, "Published");
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.LandingContentVersions.Add(LandingContentVersion.CreateDraft(
+                JsonSerializer.Serialize(Content("Private draft")), 1, 100,
+                new DateTimeOffset(2026, 10, 23, 1, 0, 0, TimeSpan.Zero)));
+            return await db.SaveChangesAsync();
+        });
+
+        var response = await client.GetAsync("/api/v1/landing-content");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = body.RootElement;
+        root.GetProperty("versionNumber").GetInt32().Should().Be(1);
+        root.GetProperty("content").GetProperty("hero").GetProperty("headline").GetString().Should().Be("Published");
+        root.TryGetProperty("draft", out _).Should().BeFalse();
+        root.TryGetProperty("history", out _).Should().BeFalse();
+        root.TryGetProperty("publishedByName", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Get_WithAdministratorRole_ReturnsForbidden()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator, userId: 102);
+
+        var response = await client.GetAsync("/api/v1/admin/landing-content");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task DraftThenPublish_WithStaff_ReturnsTheNextImmutableVersion()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = await CreateClientAsync(factory, UserRole.Staff, userId: 103);
+        await SeedPublishedVersionAsync(factory, "Before");
+
+        var save = await client.PutAsync("/api/v1/admin/landing-content/draft", JsonBody(new
+        {
+            baseVersion = 1,
+            content = Content("After"),
+        }));
+        var publish = await client.PostAsync("/api/v1/admin/landing-content/publish", JsonBody(new { baseVersion = 1 }));
+
+        save.StatusCode.Should().Be(HttpStatusCode.OK);
+        publish.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await publish.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("versionNumber").GetInt32().Should().Be(2);
+        body.RootElement.GetProperty("content").GetProperty("hero").GetProperty("headline").GetString().Should().Be("After");
+        (await factory.WithDbContextAsync(db => db.LandingContentVersions.CountAsync(version => !version.IsPublished))).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Upload_WithoutFile_ReturnsBadRequest()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = await CreateClientAsync(factory, UserRole.Staff, userId: 104);
+        using var form = new MultipartFormDataContent();
+
+        var response = await client.PostAsync("/api/v1/admin/landing-content/media", form);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    private static async Task SeedPublishedVersionAsync(TripMateApiFactory factory, string headline)
+    {
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.LandingContentVersions.Add(LandingContentVersion.CreateDraft(
+                JsonSerializer.Serialize(Content(headline)), 1, 100,
+                new DateTimeOffset(2026, 10, 23, 0, 0, 0, TimeSpan.Zero)).PublishAsNextVersion(
+                100, 1, new DateTimeOffset(2026, 10, 23, 0, 0, 0, TimeSpan.Zero)));
+            return await db.SaveChangesAsync();
+        });
+    }
+
+    private static object Content(string headline) => new
+    {
+        hero = new { headline, subHeadline = string.Empty, backgroundImage = (object?)null, ctaLabel = "Explore", ctaTarget = "/tours" },
+        destinations = Array.Empty<object>(),
+        featuredTourIds = Array.Empty<string>(),
+        banner = new { image = (object?)null, link = string.Empty, displayStart = string.Empty, displayEnd = string.Empty },
+    };
+
+    private static async Task<HttpClient> CreateClientAsync(TripMateApiFactory factory, UserRole role, long userId = 100)
+    {
+        var token = await factory.IssueTokenForPersistedUserAsync(new User
+        {
+            Id = userId,
+            Email = $"landing-{userId}@example.com",
+            FullName = "Landing Administrator",
+            Role = role,
+            Status = AccountStatus.Active,
+        });
+        return factory.CreateJwtClient(token);
+    }
+
+    private static StringContent JsonBody(object payload) =>
+        new(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+}

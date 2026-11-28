@@ -171,6 +171,8 @@ public class TestDbContext(
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<LandingContentVersion> LandingContentVersions => Set<LandingContentVersion>();
+
     public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
 
     public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
