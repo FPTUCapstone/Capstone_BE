@@ -53,6 +53,7 @@ public sealed class AdminReconciliationQueryHandler
             var term = query.Keyword.Trim();
             dbQuery = dbQuery.Where(s => s.StatementCode.Contains(term)
                                          || (s.BankTransferReference != null && s.BankTransferReference.Contains(term))
+                                         || (s.VerifiedBankTransferReference != null && s.VerifiedBankTransferReference.Contains(term))
                                          || s.Provider.Name.Contains(term));
         }
 
@@ -61,10 +62,12 @@ public sealed class AdminReconciliationQueryHandler
 
         var totalCount = await dbQuery.CountAsync(cancellationToken);
 
-        var items = await dbQuery
+        var offset = ((long)page - 1) * size;
+        var items = offset >= totalCount ? [] : await dbQuery
             .OrderByDescending(s => s.Period)
             .ThenByDescending(s => s.DueDate)
-            .Skip((page - 1) * size)
+            .ThenByDescending(s => s.Id)
+            .Skip((int)offset)
             .Take(size)
             .Select(s => new ReconciliationStatementItemDto(
                 s.Id,
@@ -80,11 +83,13 @@ public sealed class AdminReconciliationQueryHandler
                 s.IssueDate,
                 s.DueDate,
                 s.Status,
-                s.BankTransferReference,
+                s.VerifiedBankTransferReference ?? s.BankTransferReference,
                 s.ReportedAtUtc,
                 s.ConfirmedByUserId,
                 s.ConfirmedAtUtc,
-                s.ReceiptNumber))
+                s.ReceiptNumber,
+                s.BankTransferReference,
+                s.VerifiedBankTransferReference))
             .ToListAsync(cancellationToken);
 
         return Result<PaginatedList<ReconciliationStatementItemDto>>.Success(
@@ -141,13 +146,15 @@ public sealed class AdminReconciliationQueryHandler
             statement.IssueDate,
             statement.DueDate,
             statement.Status,
-            statement.BankTransferReference,
+            statement.VerifiedBankTransferReference ?? statement.BankTransferReference,
             statement.ReportedAtUtc,
             statement.ConfirmedByUserId,
             statement.ConfirmedByUser?.FullName,
             statement.ConfirmedAtUtc,
             statement.ReceiptNumber,
-            requests);
+            requests,
+            statement.BankTransferReference,
+            statement.VerifiedBankTransferReference);
 
         return Result<ReconciliationStatementDetailDto>.Success(dto);
     }

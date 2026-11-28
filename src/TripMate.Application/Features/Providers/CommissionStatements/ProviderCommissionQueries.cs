@@ -65,7 +65,9 @@ public sealed class ProviderCommissionQueryHandler
         if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
             var term = query.Keyword.Trim();
-            dbQuery = dbQuery.Where(s => s.StatementCode.Contains(term) || (s.BankTransferReference != null && s.BankTransferReference.Contains(term)));
+            dbQuery = dbQuery.Where(s => s.StatementCode.Contains(term)
+                || (s.BankTransferReference != null && s.BankTransferReference.Contains(term))
+                || (s.VerifiedBankTransferReference != null && s.VerifiedBankTransferReference.Contains(term)));
         }
 
         var page = query.PageNumber < 1 ? 1 : query.PageNumber;
@@ -89,7 +91,7 @@ public sealed class ProviderCommissionQueryHandler
                 s.IssueDate,
                 s.DueDate,
                 s.Status,
-                s.BankTransferReference,
+                s.VerifiedBankTransferReference ?? s.BankTransferReference,
                 s.ReportedAtUtc,
                 s.ConfirmedAtUtc,
                 s.ReceiptNumber))
@@ -169,7 +171,7 @@ public sealed class ProviderCommissionQueryHandler
             statement.IssueDate,
             statement.DueDate,
             statement.Status,
-            statement.BankTransferReference,
+            statement.VerifiedBankTransferReference ?? statement.BankTransferReference,
             statement.ReportedAtUtc,
             statement.ConfirmedAtUtc,
             statement.ReceiptNumber,

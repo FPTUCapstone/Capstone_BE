@@ -72,7 +72,9 @@ public sealed record ReconciliationStatementItemDto(
     DateTimeOffset? ReportedAtUtc,
     long? ConfirmedByUserId,
     DateTimeOffset? ConfirmedAtUtc,
-    string? ReceiptNumber);
+    string? ReceiptNumber,
+    string? ReportedBankTransferReference,
+    string? VerifiedBankTransferReference);
 
 public sealed record ReconciliationStatementDetailDto(
     long StatementId,
@@ -96,7 +98,9 @@ public sealed record ReconciliationStatementDetailDto(
     string? ConfirmedByStaffName,
     DateTimeOffset? ConfirmedAtUtc,
     string? ReceiptNumber,
-    IReadOnlyList<StatementBookingRequestDto> Requests);
+    IReadOnlyList<StatementBookingRequestDto> Requests,
+    string? ReportedBankTransferReference,
+    string? VerifiedBankTransferReference);
 
 public sealed record ReportCommissionPaymentRequest(string BankTransferReference);
 

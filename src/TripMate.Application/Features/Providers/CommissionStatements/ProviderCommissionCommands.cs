@@ -60,6 +60,13 @@ public sealed class ReportCommissionPaymentCommandHandler
                 "You do not have permission to modify this statement.");
         }
 
+        if (statement.CommissionAmount == 0)
+        {
+            return Result<ProviderStatementItemDto>.Failure(
+                CommissionStatementErrorCodes.InvalidState,
+                "No payment is due for this commission statement.");
+        }
+
         // Validate state: must be Issued or Overdue
         if (statement.Status is not (ServiceCommissionStatement.StatusIssued or ServiceCommissionStatement.StatusOverdue))
         {

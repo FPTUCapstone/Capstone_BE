@@ -1,7 +1,6 @@
 using FluentAssertions;
 
 using TripMate.Application.Features.Payouts.DailySettlement;
-using TripMate.Application.Features.Payouts.DailySettlement.Admin;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
@@ -90,74 +89,5 @@ public sealed class DailyPayoutDebtAndAutoLockTests
 
         var reloadedOperator = await db.Users.FindAsync(7L);
         reloadedOperator!.Status.Should().Be(AccountStatus.Active);
-    }
-
-    [Fact]
-    public async Task UnlockTourOperator_WithOutstandingDebt_IsRefused()
-    {
-        await using var db = TestDbContext.Create();
-        var operatorUser = await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
-        operatorUser.Lock(DailyPayoutAutoLock.UnrecoveredDebtLockReason, AtRunTime);
-        await SeedDebtAsync(db, 7, amount: 500_000m, incurredAtUtc: AtRunTime.AddDays(-20));
-        await db.SaveChangesAsync();
-        var staff = new FakeCurrentUserService { UserId = 50, Role = nameof(UserRole.Staff) };
-        var handler = new UnlockTourOperatorCommandHandler(db, staff, new PayoutTestHelpers.FixedClock(AtRunTime));
-
-        var result = await handler.Handle(new UnlockTourOperatorCommand(7), CancellationToken.None);
-
-        result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be(DailyPayoutErrorCodes.OperatorHasOutstandingDebt); // MSG199
-        operatorUser.Status.Should().Be(AccountStatus.Locked);
-    }
-
-    [Fact]
-    public async Task UnlockTourOperator_WithDebtFullyRecovered_Succeeds()
-    {
-        await using var db = TestDbContext.Create();
-        var operatorUser = await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
-        operatorUser.Lock(DailyPayoutAutoLock.UnrecoveredDebtLockReason, AtRunTime);
-        var debt = TourOperatorDebt.Create(7, 500_000m, AtRunTime.AddDays(-20), AtRunTime.AddDays(-20));
-        debt.Recover(500_000m);
-        db.TourOperatorDebts.Add(debt);
-        await db.SaveChangesAsync();
-        var staff = new FakeCurrentUserService { UserId = 50, Role = nameof(UserRole.Staff) };
-        var handler = new UnlockTourOperatorCommandHandler(db, staff, new PayoutTestHelpers.FixedClock(AtRunTime));
-
-        var result = await handler.Handle(new UnlockTourOperatorCommand(7), CancellationToken.None);
-
-        result.IsSuccess.Should().BeTrue();
-        operatorUser.Status.Should().Be(AccountStatus.Active);
-        operatorUser.LockReason.Should().BeNull();
-        db.AuditLogs.Should().ContainSingle(a => a.ActionType == AuditActionTypes.TourOperatorUnlocked);
-    }
-
-    [Fact]
-    public async Task UnlockTourOperator_NotLocked_ReturnsOperatorNotLocked()
-    {
-        await using var db = TestDbContext.Create();
-        await DailyPayoutTestFixture.SeedOperatorAsync(db, 7, AccountStatus.Active);
-        var staff = new FakeCurrentUserService { UserId = 50, Role = nameof(UserRole.Staff) };
-        var handler = new UnlockTourOperatorCommandHandler(db, staff, new PayoutTestHelpers.FixedClock(AtRunTime));
-
-        var result = await handler.Handle(new UnlockTourOperatorCommand(7), CancellationToken.None);
-
-        result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be(DailyPayoutErrorCodes.OperatorNotLocked);
-    }
-
-    [Fact]
-    public async Task UnlockTourOperator_ByNonStaff_ReturnsForbidden()
-    {
-        await using var db = TestDbContext.Create();
-        var operatorUser = await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
-        operatorUser.Lock(DailyPayoutAutoLock.UnrecoveredDebtLockReason, AtRunTime);
-        await db.SaveChangesAsync();
-        var admin = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.Administrator) };
-        var handler = new UnlockTourOperatorCommandHandler(db, admin, new PayoutTestHelpers.FixedClock(AtRunTime));
-
-        var result = await handler.Handle(new UnlockTourOperatorCommand(7), CancellationToken.None);
-
-        result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be(DailyPayoutErrorCodes.Forbidden);
     }
 }

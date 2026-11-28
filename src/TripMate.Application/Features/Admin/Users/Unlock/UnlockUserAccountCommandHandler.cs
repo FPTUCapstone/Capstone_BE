@@ -36,8 +36,8 @@ public sealed class UnlockUserAccountCommandHandler(
         }
 
         var normalizedReason = request.Reason.Trim();
-        var normalizedKey = request.IdempotencyKey.Trim();
-        var requestHash = ComputeRequestHash(request.UserId, normalizedReason);
+        var normalizedKey = request.IdempotencyKey?.Trim();
+        var requestHash = normalizedKey is null ? null : ComputeRequestHash(request.UserId, normalizedReason);
 
         return await dbContext.ExecuteInSerializableTransactionAsync(
             transactionCancellationToken => ExecuteInTransactionAsync(
@@ -46,6 +46,7 @@ public sealed class UnlockUserAccountCommandHandler(
                 normalizedReason,
                 normalizedKey,
                 requestHash,
+                request.ExpectedTargetRole,
                 transactionCancellationToken),
             cancellationToken);
     }
@@ -54,15 +55,17 @@ public sealed class UnlockUserAccountCommandHandler(
         long targetUserId,
         long actorUserId,
         string reason,
-        string idempotencyKey,
-        string requestHash,
+        string? idempotencyKey,
+        string? requestHash,
+        UserRole? expectedTargetRole,
         CancellationToken cancellationToken)
     {
         // Always acquire locks in this order. Acquiring the target lock first keeps
         // the serializable idempotency lookup from holding a range lock while it
         // waits for another unlock of the same account.
         await userUnlockLock.AcquireTargetUserAsync(targetUserId, cancellationToken);
-        await userUnlockLock.AcquireAsync(actorUserId, idempotencyKey, cancellationToken);
+        if (idempotencyKey is not null)
+            await userUnlockLock.AcquireAsync(actorUserId, idempotencyKey, cancellationToken);
 
         var role = await UserAccountAccess.ActorRoleAsync(dbContext, currentUserService, cancellationToken);
         if (role is null)
@@ -74,14 +77,14 @@ public sealed class UnlockUserAccountCommandHandler(
 
         User? target = await UserAccountAccess.Scope(dbContext, role.Value)
             .SingleOrDefaultAsync(user => user.Id == targetUserId, cancellationToken);
-        if (target is null)
+        if (target is null || (expectedTargetRole is not null && target.Role != expectedTargetRole))
         {
             return Result.Failure<UnlockUserAccountResponse>(
                 UserAdministrationErrorCodes.NotFound,
                 "The user account was not found.");
         }
 
-        UserUnlockOperation? existingOperation = await dbContext.UserUnlockOperations
+        UserUnlockOperation? existingOperation = idempotencyKey is null ? null : await dbContext.UserUnlockOperations
             .SingleOrDefaultAsync(
                 operation => operation.AdministratorUserId == actorUserId
                     && operation.IdempotencyKey == idempotencyKey,
@@ -105,22 +108,13 @@ public sealed class UnlockUserAccountCommandHandler(
                 "The user account is not locked.");
         }
 
-        if (target.Role == UserRole.TourOperator
-            && await dbContext.TourOperatorDebts.AnyAsync(
-                debt => debt.TourOperatorUserId == target.Id && debt.RecoveredAmount < debt.Amount,
-                cancellationToken))
-        {
-            return Result.Failure<UnlockUserAccountResponse>(
-                DailyPayoutErrorCodes.OperatorHasOutstandingDebt,
-                DailyPayoutErrorCodes.OperatorHasOutstandingDebtMessage);
-        }
-
         var now = dateTimeProvider.UtcNow;
-        if (target.Role == UserRole.ServiceProvider
-            && await UserAccountAccess.HasUnpaidOverdueCommissionAsync(dbContext, target.Id, now, cancellationToken))
+        if (await AccountLockRecovery.GetOutstandingAmountAsync(dbContext, target, now, cancellationToken) is { } amount)
         {
-            return Result.Failure<UnlockUserAccountResponse>(UserAccountErrors.ProviderSettlementUnavailable,
-                "Provider commission settlement must be verified before unlocking.");
+            var errorCode = target.Role == UserRole.TourOperator
+                ? DailyPayoutErrorCodes.OperatorHasOutstandingDebt
+                : UserAccountErrors.ProviderSettlementUnavailable;
+            return AccountLockRecovery.PaymentRequired<UnlockUserAccountResponse>(errorCode, amount);
         }
 
         // Capture the lock evidence before restoration clears it. An unlock audit must explain
@@ -170,13 +164,11 @@ public sealed class UnlockUserAccountCommandHandler(
             Status = NotificationStatus.Pending,
             CreatedAtUtc = now,
         });
-        dbContext.UserUnlockOperations.Add(UserUnlockOperation.Create(
-            actorUserId,
-            idempotencyKey,
-            requestHash,
-            target.Id,
-            restoredStatus,
-            now));
+        if (idempotencyKey is not null && requestHash is not null)
+        {
+            dbContext.UserUnlockOperations.Add(UserUnlockOperation.Create(
+                actorUserId, idempotencyKey, requestHash, target.Id, restoredStatus, now));
+        }
 
         await dbContext.SaveChangesAsync(cancellationToken);
 

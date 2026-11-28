@@ -7,6 +7,7 @@ using TripMate.Api.Common;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Providers.CommissionStatements;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
@@ -19,6 +20,7 @@ public sealed class AdminCommissionReconciliationController(
     ICurrentUserService currentUserService) : ApiControllerBase(sender)
 {
     [HttpGet]
+    [Authorize(Roles = nameof(UserRole.Staff))]
     public async Task<IActionResult> List(
         [FromQuery] long? providerId,
         [FromQuery] string? period,
@@ -41,6 +43,7 @@ public sealed class AdminCommissionReconciliationController(
     }
 
     [HttpGet("{id:long}")]
+    [Authorize(Roles = nameof(UserRole.Staff))]
     public async Task<IActionResult> Detail(long id, CancellationToken cancellationToken)
     {
         var query = new GetReconciliationStatementDetailQuery(id);
@@ -49,6 +52,7 @@ public sealed class AdminCommissionReconciliationController(
     }
 
     [HttpPost("{id:long}/reconcile")]
+    [Authorize(Roles = nameof(UserRole.Staff))]
     public async Task<IActionResult> Reconcile(
         long id,
         [FromBody] ReconcileCommissionReceiptBody? body,
@@ -62,7 +66,9 @@ public sealed class AdminCommissionReconciliationController(
         var command = new ConfirmCommissionReceiptCommand(
             StatementId: id,
             StaffUserId: currentUserService.UserId.Value,
-            Notes: body?.Notes);
+            Notes: body?.Notes,
+            BankTransferReference: body?.BankTransferReference,
+            ReceivedAmountVnd: body?.ReceivedAmountVnd);
 
         var result = await commandHandler.HandleAsync(command, cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : RequestFailure(result);
@@ -92,8 +98,10 @@ public sealed class AdminCommissionReconciliationController(
         {
             CommissionStatementErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
             CommissionStatementErrorCodes.NotFound => StatusCodes.Status404NotFound,
-            CommissionStatementErrorCodes.InvalidState or CommissionStatementErrorCodes.AlreadyPaid => StatusCodes.Status409Conflict,
-            CommissionStatementErrorCodes.MissingBankReference or CommissionStatementErrorCodes.InvalidInput => StatusCodes.Status400BadRequest,
+            CommissionStatementErrorCodes.InvalidState or CommissionStatementErrorCodes.AlreadyPaid
+                or CommissionStatementErrorCodes.BankReferenceAlreadyUsed => StatusCodes.Status409Conflict,
+            CommissionStatementErrorCodes.MissingBankReference or CommissionStatementErrorCodes.InvalidInput
+                or CommissionStatementErrorCodes.ReceiptAmountMismatch => StatusCodes.Status400BadRequest,
             _ => StatusCodes.Status400BadRequest
         };
 
@@ -104,5 +112,6 @@ public sealed class AdminCommissionReconciliationController(
     }
 }
 
-public sealed record ReconcileCommissionReceiptBody(string? Notes);
+public sealed record ReconcileCommissionReceiptBody(
+    string? Notes, string? BankTransferReference = null, decimal? ReceivedAmountVnd = null);
 public sealed record GenerateCommissionStatementsBody(string? Period);

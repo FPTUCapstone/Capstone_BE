@@ -3,6 +3,7 @@ using System.Data;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Features.Admin.Users.Common;
+using TripMate.Application.Features.Providers.CommissionStatements;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Services;
@@ -40,7 +41,10 @@ internal sealed class SqlServerUserAdministrationNotificationOutboxStore(Applica
                 INNER JOIN dbo.Users AS [user] ON [user].user_id = notification.user_id
                 WHERE notification.status = 'Pending'
                   AND notification.channel = 'Email'
-                  AND notification.type = {UserAdministrationNotificationTypes.AccountUnlocked}
+                  AND notification.type IN ({UserAdministrationNotificationTypes.AccountLocked},
+                    {UserAdministrationNotificationTypes.AccountUnlocked},
+                    {CommissionStatementService.ProviderAutoLockNotificationType},
+                    {CommissionStatementService.OverdueReminderNotificationType})
                   AND NULLIF(LTRIM(RTRIM([user].email)), '') IS NOT NULL
                   AND (notification.next_delivery_attempt_at IS NULL
                        OR notification.next_delivery_attempt_at <= {now})
