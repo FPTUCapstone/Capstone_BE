@@ -20,3 +20,6 @@ Approved by the user on 2026-11-28 before implementation, together with the plan
 
 ## Selected model
 Use a dedicated authenticated private renderer service, not a Docker daemon socket inside the API. The standard API image remains unchanged. Per-document Linux restrictions fail closed on unsupported hosts. Actual Railway host verification is a deployment prerequisite and is not inferred from local Docker results.
+
+## Diagnostic follow-up approved 2026-11-28
+The user approved adding and pushing Landlock diagnostics after Railway startup failed. Distinguish a supported ABI below 3 from a failed probe; report actual ABI or captured errno and strerror. Keep exit 125, minimum ABI 3 and all sandbox controls unchanged. No credentials or document contents in logs. No automatic production deployment.

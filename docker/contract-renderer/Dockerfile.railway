@@ -6,7 +6,7 @@ RUN gcc -O2 -Wall -Wextra -Werror -D_FORTIFY_SOURCE=2 -fstack-protector-strong \
     -o /build/contract-render-sandbox /build/sandbox.c -lseccomp
 
 # A separate service, never the application API: do not attach the API artifact volume or shared secrets.
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS runtime-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 libreoffice-writer poppler-utils libseccomp2 fonts-liberation fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
@@ -22,3 +22,15 @@ EXPOSE 8080
 # Supervisor stays root so the untrusted engine can run as nobody with no access to supervisor secrets.
 # The launcher is not setuid; it drops uid/gid, clears environment/fds and applies Landlock + seccomp.
 ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/service/server.py"]
+
+# Explicit CI target; production's final stage below contains no diagnostic test binary.
+FROM sandbox-build AS diagnostics-build
+COPY docker/contract-renderer/test_diagnostics.c /build/test_diagnostics.c
+RUN gcc -O2 -Wall -Wextra -Werror -I/build -o /build/test-diagnostics /build/test_diagnostics.c -lseccomp
+
+FROM runtime-base AS diagnostics-tests
+COPY --from=diagnostics-build /build/test-diagnostics /tmp/test-diagnostics
+COPY docker/contract-renderer/test_diagnostics.py /checks/test_diagnostics.py
+RUN python3 /checks/test_diagnostics.py
+
+FROM runtime-base AS runtime
